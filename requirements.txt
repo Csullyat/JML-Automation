@@ -1,0 +1,13 @@
+# requirements.txt - Python dependencies for termination automation
+
+# Core HTTP and API libraries
+requests>=2.31.0
+
+# Microsoft Graph API support
+msal>=1.24.0
+
+# 1Password CLI integration (ensure op CLI is installed separately)
+# No Python package needed for 1Password CLI
+
+# Optional: Additional useful libraries
+python-dateutil>=2.8.2
