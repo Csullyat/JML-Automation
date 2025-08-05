@@ -6,22 +6,22 @@ from typing import List, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Imports and API configuration
-from config import get_solarwinds_credentials, SAMANAGE_BASE_URL
+from config import get_samanage_token
 
 logger = logging.getLogger(__name__)
 
+BASE_URL = "https://api.samanage.com"
 # Get the token once at module level
-token, _ = get_solarwinds_credentials()
 HEADERS = {
-    "X-Samanage-Authorization": f"Bearer {token}",
+    "X-Samanage-Authorization": f"Bearer {get_samanage_token()}",
     "Accept": "application/vnd.samanage.v2.1+json"
 }
 
 # Termination subcategory ID from our analysis
 TERMINATION_SUBCATEGORY_ID = 1574220  # "Termination" subcategory in Human Resources
 
-# States that represent "active" termination requests
-ACTIVE_STATES = {"New", "Assigned", "Auto-Assigned", "In Progress"}
+# States that represent "active" termination requests - "New" and "Awaiting Input"
+ACTIVE_STATES = {"New", "Awaiting Input"}
 
 def fetch_page(page: int, per_page: int) -> List[Dict]:
     """Fetch a page of termination tickets."""
@@ -34,7 +34,7 @@ def fetch_page(page: int, per_page: int) -> List[Dict]:
     }
 
     logger.debug(f"Fetching page {page}...")
-    resp = requests.get(f"{SAMANAGE_BASE_URL}/incidents.json", headers=HEADERS, params=params)
+    resp = requests.get(f"{BASE_URL}/incidents.json", headers=HEADERS, params=params)
 
     if resp.status_code != 200:
         print(f"Error on page {page}: {resp.status_code}: {resp.text}")
@@ -94,6 +94,14 @@ def parse_termination_ticket(ticket: Dict) -> Dict:
                 if label == "Employee to Terminate":
                     out["employee_to_terminate"] = val
                     found_fields.add("employee_to_terminate")
+                    # Get the actual email from the user object if available
+                    user_obj = f.get("user", {})
+                    if user_obj and user_obj.get("email"):
+                        out["employee_email"] = user_obj["email"]
+                        out["employee_name"] = user_obj.get("name", val)
+                    else:
+                        # Fallback to ID format if user object not available
+                        out["employee_email"] = f"{val}@filevine.com"
                 elif label == "Employee Department":
                     out["employee_department"] = val
                 elif label == "Termination Date":
@@ -104,6 +112,17 @@ def parse_termination_ticket(ticket: Dict) -> Dict:
                     out["term_type"] = val
                 elif label == "Transfer Data":
                     out["transfer_data"] = val
+                    # Extract manager email from transfer data user object
+                    user_obj = f.get("user", {})
+                    if user_obj and user_obj.get("email"):
+                        out["manager_email"] = user_obj["email"]
+                        out["manager_name"] = user_obj.get("name", "")
+                    elif "@filevine.com" in val:
+                        # Fallback: Look for email pattern in transfer data value
+                        import re
+                        email_match = re.search(r'([a-zA-Z0-9._%+-]+@filevine\.com)', val)
+                        if email_match:
+                            out["manager_email"] = email_match.group(1)
                 elif label == "Additional Information":
                     out["additional_info"] = val
                 elif label == "Is this termination pre-hire date?":
