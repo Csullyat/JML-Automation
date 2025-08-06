@@ -26,6 +26,8 @@ class EnterpriseTerminationOrchestrator:
         try:
             self.okta_termination = OktaTermination()
             self.microsoft_termination = MicrosoftTermination()
+            # Note: Slack notifications disabled during testing phase
+            self.slack_notifications = None
             
             logger.info("Enterprise Termination Orchestrator initialized successfully")
             
@@ -158,9 +160,12 @@ class EnterpriseTerminationOrchestrator:
             microsoft_success = termination_results['microsoft_results'].get('success', False)
             termination_results['overall_success'] = okta_success and (microsoft_success or not manager_email)
             
-            # Step 4: Send Slack notification
+            # Step 4: Send Slack notification (disabled during testing)
             try:
-                self.send_termination_notification(termination_results)
+                if self.slack_notifications:
+                    self.send_termination_notification(termination_results)
+                else:
+                    logger.debug("Slack notifications disabled during testing phase")
             except Exception as e:
                 logger.error(f"Failed to send Slack notification: {e}")
                 termination_results['summary'].append("Failed to send Slack notification")
@@ -180,7 +185,11 @@ class EnterpriseTerminationOrchestrator:
             return termination_results
     
     def send_termination_notification(self, termination_results: Dict):
-        """Send Slack notification about termination results."""
+        """Send Slack notification about termination results (disabled during testing)."""
+        if not self.slack_notifications:
+            logger.debug("Slack notifications disabled during testing phase")
+            return
+            
         try:
             user_email = termination_results['user_email']
             success = termination_results['overall_success']
@@ -274,8 +283,11 @@ class EnterpriseTerminationOrchestrator:
                     logger.error(f"Failed to process ticket {ticket.get('id', 'unknown')}: {e}")
                     total_processed += 1
             
-            # Send summary notification
-            self.send_batch_summary(total_processed, total_successful)
+            # Send summary notification (disabled during testing)
+            if self.slack_notifications:
+                self.send_batch_summary(total_processed, total_successful)
+            else:
+                logger.debug("Batch summary notifications disabled during testing phase")
             
             logger.info(f"Ticket processing completed: {total_successful}/{total_processed} successful")
             
@@ -284,7 +296,11 @@ class EnterpriseTerminationOrchestrator:
             raise
     
     def send_batch_summary(self, total_processed: int, total_successful: int):
-        """Send summary notification for batch processing."""
+        """Send summary notification for batch processing (disabled during testing)."""
+        if not self.slack_notifications:
+            logger.debug("Batch summary notifications disabled during testing phase")
+            return
+            
         try:
             success_rate = (total_successful / total_processed * 100) if total_processed > 0 else 0
             

@@ -146,15 +146,8 @@ class MicrosoftTermination:
             # Try automated approach with certificate authentication
             ps_script = f"""
 try {{
-    Write-Host "Importing Exchange Online Management module with full path..."
-    $modulePath = "$env:USERPROFILE\\Documents\\PowerShell\\Modules\\ExchangeOnlineManagement\\3.8.0\\ExchangeOnlineManagement.psd1"
-    if (Test-Path $modulePath) {{
-        Import-Module $modulePath -Force
-        Write-Host "Module imported successfully from: $modulePath"
-    }} else {{
-        Write-Host "Module not found at: $modulePath"
-        Import-Module ExchangeOnlineManagement -Force
-    }}
+    Write-Host "Importing Exchange Online Management module..."
+    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
     
     Write-Host "Connecting to Exchange Online with certificate authentication..."
     # Using certificate-based authentication for unattended automation
@@ -281,12 +274,7 @@ try {{
             ps_script = f"""
 try {{
     Write-Host "Importing Exchange Online Management module..."
-    $modulePath = "$env:USERPROFILE\\Documents\\PowerShell\\Modules\\ExchangeOnlineManagement\\3.8.0\\ExchangeOnlineManagement.psd1"
-    if (Test-Path $modulePath) {{
-        Import-Module $modulePath -Force
-    }} else {{
-        Import-Module ExchangeOnlineManagement -Force
-    }}
+    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
     
     Write-Host "Connecting to Exchange Online with certificate authentication..."
     Connect-ExchangeOnline -AppId '{app_id}' -Organization '{organization}' -CertificateThumbprint '{cert_thumbprint}' -ShowBanner:$false
