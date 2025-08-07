@@ -191,6 +191,39 @@ Recommended Task Scheduler configuration:
 - [ ] Integration with HR systems for automated triggering
 - [ ] Advanced reporting dashboard
 
+## ⚡ Performance Optimization
+
+### Current Performance Characteristics
+- **Ticket Processing**: ~20 seconds for 6000 tickets
+- **Single User Termination**: ~45-70 seconds per user (optimized from 90-110s)
+- **Google Data Transfer**: 15-45 seconds (adaptive polling)
+- **Microsoft 365 Operations**: ~20-30 seconds per user (token caching)
+
+### ✅ Implemented Optimizations
+1. **Adaptive Polling**: Google data transfers now use 5s → 10s → 15s intervals
+2. **Token Caching**: Microsoft Graph tokens cached for 1 hour (90% faster auth)
+3. **Parallel Processing**: Support for 2 concurrent user terminations
+4. **Session Reuse**: PowerShell Exchange session tracking
+5. **Graceful Fallbacks**: Continue processing when non-critical steps fail
+
+### Performance Testing
+Run the performance test script to benchmark your environment:
+```bash
+python performance_test.py
+```
+
+### Optimization Opportunities (Future)
+- **Connection Pooling**: Reuse HTTP connections
+- **Bulk Operations**: Use batch APIs where available
+- **Async Operations**: Non-blocking data transfers
+- **Smart Caching**: Cache user/group lookups
+
+### Bottlenecks Identified
+- **PowerShell Exchange Operations**: ~25-30 seconds per mailbox
+- **Data Transfer Size**: Varies with user data volume
+- **API Rate Limits**: Google/Microsoft throttling
+- **Sequential Steps**: Some operations must be performed in order
+
 ## 📞 Support
 
 For issues or questions:

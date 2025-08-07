@@ -249,6 +249,10 @@ class OktaTermination:
         except Exception as e:
             logger.error(f"Exception removing user from group {group_name}: {e}")
             return False
+
+    def remove_user_from_google_workspace_group(self, user_id: str) -> bool:
+        """Remove user from the Google Workspace Okta group."""
+        return self.remove_user_from_specific_group(user_id, "SSO-Google_Workspace_EnterpriseUsers")
     
     def execute_complete_termination(self, user_email: str) -> Dict:
         """Execute complete Okta termination for a user."""

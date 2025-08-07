@@ -6,13 +6,16 @@ Combines ticket processing, Okta deactivation, session clearing, and Microsoft 3
 
 import logging
 import sys
+import time
 from datetime import datetime
 from typing import Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import all termination components
 from termination_extractor import fetch_tickets, parse_termination_ticket
 from okta_termination import OktaTermination
 from microsoft_termination import MicrosoftTermination
+from google_termination import GoogleTerminationManager
 from slack_notifications import send_termination_notification
 from logging_system import setup_logging
 
@@ -26,6 +29,17 @@ class EnterpriseTerminationOrchestrator:
         try:
             self.okta_termination = OktaTermination()
             self.microsoft_termination = MicrosoftTermination()
+            
+            # Initialize Google Workspace termination (may fail if credentials not set up)
+            try:
+                self.google_termination = GoogleTerminationManager()
+                self.google_enabled = True
+                logger.info("Google Workspace termination enabled")
+            except Exception as e:
+                logger.warning(f"Google Workspace termination disabled: {e}")
+                self.google_termination = None
+                self.google_enabled = False
+            
             # Note: Slack notifications disabled during testing phase
             self.slack_notifications = None
             
@@ -76,6 +90,7 @@ class EnterpriseTerminationOrchestrator:
             'start_time': datetime.now(),
             'okta_results': {},
             'microsoft_results': {},
+            'google_results': {},
             'overall_success': False,
             'summary': []
         }
@@ -143,7 +158,67 @@ class EnterpriseTerminationOrchestrator:
                 termination_results['summary'].append("Microsoft 365 termination skipped - no manager")
                 termination_results['microsoft_results'] = {'success': False, 'error': 'No manager provided'}
             
-            # Step 3: Update ticket status if ticket ID provided
+            # Step 3: Google Workspace Termination (data transfer and user deletion)
+            logger.info("Phase 3: Google Workspace data transfer and user deletion")
+            if manager_email and self.google_enabled and self.google_termination:
+                try:
+                    google_results = self.google_termination.execute_complete_termination(user_email, manager_email)
+                    termination_results['google_results'] = {'success': google_results}
+                    
+                    if google_results:
+                        termination_results['summary'].append("Google Workspace termination completed successfully")
+                        logger.info("Google Workspace termination phase completed successfully")
+                        
+                        # Step 3.5: Remove from Google Workspace Okta group (after data backup)
+                        logger.info("Phase 3.5: Removing user from Google Workspace Okta group")
+                        try:
+                            # Get the user ID from the Okta results
+                            okta_user_id = None
+                            if 'user_id' in okta_results:
+                                okta_user_id = okta_results['user_id']
+                            else:
+                                # Find user again if needed
+                                user = self.okta_termination.find_user_by_email(user_email)
+                                if user:
+                                    okta_user_id = user['id']
+                            
+                            if okta_user_id:
+                                google_group_removed = self.okta_termination.remove_user_from_google_workspace_group(okta_user_id)
+                                
+                                if google_group_removed:
+                                    termination_results['summary'].append("Removed from Google Workspace Okta group")
+                                    logger.info("Successfully removed user from Google Workspace Okta group")
+                                else:
+                                    termination_results['summary'].append("Failed to remove from Google Workspace Okta group")
+                                    logger.warning("Failed to remove user from Google Workspace Okta group")
+                            else:
+                                logger.warning("Could not find Okta user ID for Google group removal")
+                                termination_results['summary'].append("Could not remove from Google group - user ID not found")
+                                
+                        except Exception as e:
+                            logger.error(f"Error removing user from Google Workspace Okta group: {e}")
+                            termination_results['summary'].append("Error removing from Google Workspace Okta group")
+                    else:
+                        termination_results['summary'].append("Google Workspace termination had issues")
+                        logger.warning("Google Workspace termination phase had issues")
+                except Exception as e:
+                    logger.error(f"Error in Google Workspace termination: {e}")
+                    termination_results['summary'].append(f"Google Workspace termination error: {str(e)}")
+                    termination_results['google_results'] = {'success': False, 'error': str(e)}
+            elif not self.google_enabled:
+                logger.info("Google Workspace termination disabled - credentials not configured")
+                termination_results['summary'].append("Google Workspace termination skipped - not configured")
+                termination_results['google_results'] = {'success': True, 'skipped': True, 'reason': 'Not configured'}
+            elif not manager_email:
+                logger.warning("No manager email provided - skipping Google Workspace data transfer")
+                termination_results['summary'].append("Google Workspace termination skipped - no manager")
+                termination_results['google_results'] = {'success': False, 'error': 'No manager provided'}
+            else:
+                logger.warning("Google Workspace termination unavailable")
+                termination_results['summary'].append("Google Workspace termination unavailable")
+                termination_results['google_results'] = {'success': False, 'error': 'Service unavailable'}
+            
+            # Step 4: Update ticket status if ticket ID provided
             if ticket_id:
                 try:
                     logger.info(f"Updating ticket {ticket_id} status")
@@ -158,9 +233,15 @@ class EnterpriseTerminationOrchestrator:
             # Determine overall success
             okta_success = okta_results.get('success', False)
             microsoft_success = termination_results['microsoft_results'].get('success', False)
-            termination_results['overall_success'] = okta_success and (microsoft_success or not manager_email)
+            google_result = termination_results.get('google_results', {})
+            google_success = google_result.get('success', False) or google_result.get('skipped', False)
             
-            # Step 4: Send Slack notification (disabled during testing)
+            # Success if Okta works and either manager wasn't provided or all manager-dependent services work
+            termination_results['overall_success'] = (okta_success and 
+                                                    (microsoft_success or not manager_email) and
+                                                    (google_success or not manager_email or not self.google_enabled))
+            
+            # Step 5: Send Slack notification (disabled during testing)
             try:
                 if self.slack_notifications:
                     self.send_termination_notification(termination_results)
@@ -240,8 +321,8 @@ class EnterpriseTerminationOrchestrator:
         except Exception as e:
             logger.error(f"Failed to send termination notification: {e}")
     
-    def run_ticket_processing(self):
-        """Main method to process all pending termination tickets."""
+    def run_ticket_processing(self, max_workers: int = 2):
+        """Main method to process all pending termination tickets with optional parallel processing."""
         logger.info("Starting enterprise termination ticket processing")
         
         try:
@@ -255,34 +336,42 @@ class EnterpriseTerminationOrchestrator:
             total_processed = 0
             total_successful = 0
             
-            for ticket in tickets:
-                try:
-                    # User info is already extracted by parse_termination_ticket
-                    user_email = ticket.get('employee_email')
-                    manager_email = ticket.get('manager_email')
-                    user_name = ticket.get('employee_name')
-                    ticket_id = ticket.get('ticket_number')
-                    
-                    if not user_email:
-                        logger.error(f"Could not extract user email from ticket {ticket_id}")
-                        continue
-                    
-                    logger.info(f"Processing termination for {user_email} (ticket {ticket_id})")
-                    
-                    # Execute complete termination
-                    results = self.execute_user_termination(user_email, manager_email, ticket_id)
-                    
-                    total_processed += 1
-                    if results['overall_success']:
-                        total_successful += 1
-                        logger.info(f"Termination successful for {user_email}")
-                    else:
-                        logger.warning(f"Termination had issues for {user_email}")
-                    
-                except Exception as e:
-                    logger.error(f"Failed to process ticket {ticket.get('id', 'unknown')}: {e}")
-                    total_processed += 1
-            
+            # Process tickets - use parallel processing if multiple tickets
+            if len(tickets) > 1 and max_workers > 1:
+                logger.info(f"Processing {len(tickets)} tickets with {max_workers} workers")
+                total_successful = self._process_tickets_parallel(tickets, max_workers)
+                total_processed = len(tickets)
+            else:
+                # Sequential processing for single ticket or when parallel disabled
+                logger.info(f"Processing {len(tickets)} tickets sequentially")
+                for ticket in tickets:
+                    try:
+                        # User info is already extracted by parse_termination_ticket
+                        user_email = ticket.get('employee_email')
+                        manager_email = ticket.get('manager_email')
+                        user_name = ticket.get('employee_name')
+                        ticket_id = ticket.get('ticket_number')
+                        
+                        if not user_email:
+                            logger.error(f"Could not extract user email from ticket {ticket_id}")
+                            continue
+                        
+                        logger.info(f"Processing termination for {user_email} (ticket {ticket_id})")
+                        
+                        # Execute complete termination
+                        results = self.execute_user_termination(user_email, manager_email, ticket_id)
+                        
+                        total_processed += 1
+                        if results['overall_success']:
+                            total_successful += 1
+                            logger.info(f"Termination successful for {user_email}")
+                        else:
+                            logger.warning(f"Termination had issues for {user_email}")
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to process ticket {ticket.get('id', 'unknown')}: {e}")
+                        total_processed += 1
+
             # Send summary notification (disabled during testing)
             if self.slack_notifications:
                 self.send_batch_summary(total_processed, total_successful)
@@ -294,6 +383,54 @@ class EnterpriseTerminationOrchestrator:
         except Exception as e:
             logger.error(f"Failed to run ticket processing: {e}")
             raise
+
+    def _process_tickets_parallel(self, tickets: List[Dict], max_workers: int) -> int:
+        """Process multiple tickets in parallel with controlled concurrency."""
+        successful_count = 0
+        
+        def process_single_ticket(ticket):
+            """Process a single ticket - wrapper for parallel execution."""
+            try:
+                user_email = ticket.get('employee_email')
+                manager_email = ticket.get('manager_email')
+                ticket_id = ticket.get('ticket_number')
+                
+                if not user_email:
+                    logger.error(f"Could not extract user email from ticket {ticket_id}")
+                    return False
+                
+                logger.info(f"[Parallel] Processing termination for {user_email} (ticket {ticket_id})")
+                
+                # Execute complete termination
+                results = self.execute_user_termination(user_email, manager_email, ticket_id)
+                
+                if results['overall_success']:
+                    logger.info(f"[Parallel] Termination successful for {user_email}")
+                    return True
+                else:
+                    logger.warning(f"[Parallel] Termination had issues for {user_email}")
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"[Parallel] Failed to process ticket {ticket.get('ticket_number', 'unknown')}: {e}")
+                return False
+        
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="Termination") as executor:
+            # Submit all tickets for processing
+            future_to_ticket = {executor.submit(process_single_ticket, ticket): ticket for ticket in tickets}
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_ticket):
+                ticket = future_to_ticket[future]
+                try:
+                    success = future.result()
+                    if success:
+                        successful_count += 1
+                except Exception as e:
+                    logger.error(f"Parallel processing exception for ticket {ticket.get('ticket_number')}: {e}")
+        
+        return successful_count
     
     def send_batch_summary(self, total_processed: int, total_successful: int):
         """Send summary notification for batch processing (disabled during testing)."""

@@ -6,6 +6,12 @@ requests>=2.31.0
 # Microsoft Graph API support
 msal>=1.24.0
 
+# Google Workspace API support
+google-api-python-client>=2.100.0
+google-auth>=2.22.0
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.1.0
+
 # 1Password CLI integration (ensure op CLI is installed separately)
 # No Python package needed for 1Password CLI
 

@@ -3,6 +3,7 @@
 import logging
 import requests
 import json
+import time
 from typing import Dict, Optional, List
 from datetime import datetime
 from config import get_microsoft_graph_credentials
@@ -16,14 +17,17 @@ class MicrosoftTermination:
         """Initialize Microsoft Graph client."""
         self.credentials = get_microsoft_graph_credentials()
         self.access_token = None
+        self.token_expires_at = 0  # Token expiration timestamp
         self.graph_endpoint = "https://graph.microsoft.com/v1.0"
+        self._exchange_session_active = False  # Track if Exchange session is active
         
         if not self.credentials.get('client_id'):
             raise Exception("Microsoft Graph credentials not available")
     
     def _get_access_token(self) -> str:
-        """Get OAuth2 access token for Microsoft Graph."""
-        if self.access_token:
+        """Get OAuth2 access token for Microsoft Graph with caching."""
+        # Check if we have a valid cached token
+        if self.access_token and time.time() < self.token_expires_at:
             return self.access_token
         
         token_url = f"https://login.microsoftonline.com/{self.credentials['tenant_id']}/oauth2/v2.0/token"
@@ -41,6 +45,10 @@ class MicrosoftTermination:
             
             token_data = response.json()
             self.access_token = token_data['access_token']
+            
+            # Cache token with 5-minute buffer before expiration
+            expires_in = token_data.get('expires_in', 3600)
+            self.token_expires_at = time.time() + expires_in - 300
             
             logger.info("Successfully obtained Microsoft Graph access token")
             return self.access_token
