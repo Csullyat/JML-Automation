@@ -200,6 +200,48 @@ class GoogleTerminationManager:
             logger.error(f"Error monitoring data transfer {transfer_id}: {e}")
             return False
 
+    def has_transferable_data(self, user_email: str) -> bool:
+        """Check if user has transferable data in Drive or Gmail."""
+        try:
+            logger.info(f"Checking if {user_email} has transferable data")
+            
+            # Check if user exists
+            user = self.find_user_by_email(user_email)
+            if not user:
+                logger.warning(f"User {user_email} not found, no data to transfer")
+                return False
+            
+            # Use the Data Transfer API to check for transferable data
+            # This works by attempting to list transfer applications for the user
+            try:
+                # Get user's data transfer applications
+                applications_request = self.datatransfer_service.applications().list()
+                applications_result = applications_request.execute()
+                
+                # Check if user has any data by looking at their usage
+                # For simplicity, we'll check if they have been assigned storage quota
+                user_info = self.directory_service.users().get(userKey=user_email).execute()
+                
+                # Check storage usage - if no quota used, likely no significant data
+                storage_used = user_info.get('quotaBytesUsed', '0')
+                if int(storage_used) == 0:
+                    logger.info(f"User {user_email} has no storage usage, no data to transfer")
+                    return False
+                
+                # If they have storage usage, they likely have data to transfer
+                logger.info(f"User {user_email} has {storage_used} bytes used, data transfer needed")
+                return True
+                
+            except Exception as e:
+                # If we can't determine data status, err on the side of caution
+                logger.warning(f"Could not determine data status for {user_email}, assuming data exists: {e}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error checking transferable data for {user_email}: {e}")
+            # If we can't check, assume data exists to be safe
+            return True
+
     def delete_user(self, user_email: str) -> bool:
         """Delete Google Workspace user account."""
         try:
@@ -228,8 +270,8 @@ class GoogleTerminationManager:
             logger.error(f"Unexpected error deleting user {user_email}: {e}")
             return False
 
-    def execute_complete_termination(self, user_email: str, manager_email: str) -> bool:
-        """Execute complete Google Workspace termination workflow."""
+    def execute_complete_termination(self, user_email: str, manager_email: str = None) -> bool:
+        """Execute complete Google Workspace termination with enhanced data handling logic."""
         try:
             logger.info(f"Starting Google Workspace termination for {user_email}")
             
@@ -239,18 +281,28 @@ class GoogleTerminationManager:
                 logger.warning(f"User {user_email} not found in Google Workspace")
                 return True  # Consider this success since user doesn't exist
             
-            # Step 2: Transfer data to manager (required for data protection)
-            if manager_email:
-                logger.info(f"Step 1: Transferring data to manager ({manager_email})")
+            # Step 2: Check if user has transferable data
+            has_data = self.has_transferable_data(user_email)
+            
+            if has_data and manager_email:
+                # User has data - attempt transfer
+                logger.info(f"Step 1: User has transferable data, transferring to manager ({manager_email})")
                 transfer_success = self.transfer_user_data(user_email, manager_email)
                 
                 if not transfer_success:
                     logger.error(f"Data transfer failed for {user_email}, aborting deletion to preserve data")
                     return False
+                    
+            elif has_data and not manager_email:
+                # User has data but no manager - cannot proceed safely
+                logger.error(f"User {user_email} has transferable data but no manager specified for transfer")
+                return False
+                
             else:
-                logger.warning(f"No manager specified for {user_email}, skipping data transfer")
+                # User has no transferable data - safe to proceed to deletion
+                logger.info(f"Step 1: User has no transferable data, proceeding directly to deletion")
             
-            # Step 3: Delete user account
+            # Step 3: Delete user account (now safe whether data was transferred or confirmed absent)
             logger.info(f"Step 2: Deleting user account")
             deletion_success = self.delete_user(user_email)
             
