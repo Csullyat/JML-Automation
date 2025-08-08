@@ -3,6 +3,7 @@
 import logging
 import requests
 import json
+import time
 from typing import Dict, Optional, List
 from datetime import datetime
 from config import get_microsoft_graph_credentials
@@ -16,14 +17,17 @@ class MicrosoftTermination:
         """Initialize Microsoft Graph client."""
         self.credentials = get_microsoft_graph_credentials()
         self.access_token = None
+        self.token_expires_at = 0  # Token expiration timestamp
         self.graph_endpoint = "https://graph.microsoft.com/v1.0"
+        self._exchange_session_active = False  # Track if Exchange session is active
         
         if not self.credentials.get('client_id'):
             raise Exception("Microsoft Graph credentials not available")
     
     def _get_access_token(self) -> str:
-        """Get OAuth2 access token for Microsoft Graph."""
-        if self.access_token:
+        """Get OAuth2 access token for Microsoft Graph with caching."""
+        # Check if we have a valid cached token
+        if self.access_token and time.time() < self.token_expires_at:
             return self.access_token
         
         token_url = f"https://login.microsoftonline.com/{self.credentials['tenant_id']}/oauth2/v2.0/token"
@@ -41,6 +45,10 @@ class MicrosoftTermination:
             
             token_data = response.json()
             self.access_token = token_data['access_token']
+            
+            # Cache token with 5-minute buffer before expiration
+            expires_in = token_data.get('expires_in', 3600)
+            self.token_expires_at = time.time() + expires_in - 300
             
             logger.info("Successfully obtained Microsoft Graph access token")
             return self.access_token
@@ -146,15 +154,8 @@ class MicrosoftTermination:
             # Try automated approach with certificate authentication
             ps_script = f"""
 try {{
-    Write-Host "Importing Exchange Online Management module with full path..."
-    $modulePath = "$env:USERPROFILE\\Documents\\PowerShell\\Modules\\ExchangeOnlineManagement\\3.8.0\\ExchangeOnlineManagement.psd1"
-    if (Test-Path $modulePath) {{
-        Import-Module $modulePath -Force
-        Write-Host "Module imported successfully from: $modulePath"
-    }} else {{
-        Write-Host "Module not found at: $modulePath"
-        Import-Module ExchangeOnlineManagement -Force
-    }}
+    Write-Host "Importing Exchange Online Management module..."
+    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
     
     Write-Host "Connecting to Exchange Online with certificate authentication..."
     # Using certificate-based authentication for unattended automation
@@ -281,12 +282,7 @@ try {{
             ps_script = f"""
 try {{
     Write-Host "Importing Exchange Online Management module..."
-    $modulePath = "$env:USERPROFILE\\Documents\\PowerShell\\Modules\\ExchangeOnlineManagement\\3.8.0\\ExchangeOnlineManagement.psd1"
-    if (Test-Path $modulePath) {{
-        Import-Module $modulePath -Force
-    }} else {{
-        Import-Module ExchangeOnlineManagement -Force
-    }}
+    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
     
     Write-Host "Connecting to Exchange Online with certificate authentication..."
     Connect-ExchangeOnline -AppId '{app_id}' -Organization '{organization}' -CertificateThumbprint '{cert_thumbprint}' -ShowBanner:$false
@@ -387,7 +383,18 @@ try {{
     # OneDrive functionality removed - out of scope for this automation
     
     def execute_complete_termination(self, user_email: str, manager_email: str) -> Dict:
-        """Execute complete Microsoft 365 termination."""
+        """
+        Execute Microsoft 365 termination process.
+        
+        Process:
+        1. Verify user exists in Microsoft 365
+        2. Verify manager exists in Microsoft 365  
+        3. Convert mailbox to shared and delegate access (if both user and manager found)
+        4. Remove all licenses (frees licenses for other users)
+        5. Keep user account in unlicensed state (Okta manages access control)
+        
+        Returns detailed results of all operations performed.
+        """
         logger.info(f"Starting Microsoft 365 termination for {user_email}")
         
         results = {
@@ -399,53 +406,70 @@ try {{
         }
         
         try:
-            # Step 1: Verify user exists
+            # Step 1: Check if user exists in Microsoft 365 FIRST
+            logger.info(f"Checking if user exists in Microsoft 365: {user_email}")
             user = self.find_user_by_email(user_email)
+            
             if not user:
+                logger.warning(f"User NOT FOUND in Microsoft 365: {user_email}")
                 results['success'] = False
-                results['actions_failed'].append('User not found in Microsoft 365')
+                results['actions_failed'].append('User not found in Microsoft 365 - skipping M365 termination')
                 return results
             
-            results['actions_completed'].append('User found in Microsoft 365')
+            logger.info(f"User FOUND in Microsoft 365: {user.get('displayName')} ({user_email})")
+            results['actions_completed'].append(f"User found in Microsoft 365: {user.get('displayName')}")
             
-            # Step 2: Find manager by email
+            # Step 2: Check if manager exists in Microsoft 365
+            logger.info(f"Checking if manager exists in Microsoft 365: {manager_email}")
             manager_found = self.find_manager_by_email(manager_email)
-            if not manager_found:
-                results['actions_failed'].append('Manager not found - manual delegation required')
-                manager_email = None
-            else:
-                results['actions_completed'].append(f'Manager found: {manager_email}')
             
-            # Step 3: Convert mailbox to shared FIRST (before removing license!)
-            if manager_email:
+            # Step 3: Only proceed with mailbox operations if BOTH user AND manager are found
+            if not manager_found:
+                logger.warning(f"Manager NOT FOUND in Microsoft 365: {manager_email}")
+                logger.warning(f"Skipping mailbox conversion and delegation - both user and manager must exist")
+                results['actions_failed'].append('Manager not found - skipping mailbox operations (requires both user and manager)')
+            else:
+                logger.info(f"Manager FOUND in Microsoft 365: {manager_found.get('displayName')} ({manager_email})")
+                results['actions_completed'].append(f"Manager found: {manager_found.get('displayName')} ({manager_email})")
+                
+                # Both user and manager found - proceed with mailbox operations
+                logger.info(f"Both user and manager found - proceeding with mailbox operations")
+                
+                # Convert mailbox to shared FIRST
+                logger.info(f"Converting mailbox to shared for: {user_email}")
                 if self.convert_mailbox_to_shared(user_email):
+                    logger.info(f"Mailbox successfully converted to shared: {user_email}")
                     results['actions_completed'].append('Mailbox converted to shared')
                 else:
+                    logger.error(f"Failed to convert mailbox to shared: {user_email}")
                     results['actions_failed'].append('Failed to convert mailbox to shared')
                 
-                # Step 4: Delegate mailbox access (while user still has Exchange license)
+                # Delegate mailbox access to manager
+                logger.info(f"Delegating mailbox access: {user_email} -> {manager_email}")
                 if self.delegate_mailbox_access(user_email, manager_email):
+                    logger.info(f"Mailbox successfully delegated to manager: {manager_email}")
                     results['actions_completed'].append(f'Mailbox delegated to {manager_email}')
                 else:
+                    logger.error(f"Failed to delegate mailbox access to: {manager_email}")
                     results['actions_failed'].append('Failed to delegate mailbox access')
             
-            # Step 5: Remove licenses LAST (after all Exchange operations)
+            # Step 4: Remove licenses (after all Exchange operations) - frees licenses for other users
             license_result = self.remove_user_licenses(user_email)
             if license_result['success']:
                 if license_result['licenses_removed'] > 0:
                     license_names = ', '.join(license_result['removed_licenses'])
                     results['actions_completed'].append(f"Removed {license_result['licenses_removed']} licenses: {license_names}")
+                    logger.info(f"Licenses removed - now available for other users: {license_names}")
                 else:
                     results['actions_completed'].append("No licenses to remove (user already unlicensed)")
             else:
                 results['actions_failed'].append('Failed to remove licenses')
                 results['success'] = False
             
-            # Handle case where manager was not found
-            if not manager_email:
-                results['actions_failed'].extend([
-                    'Mailbox delegation skipped - manager not found'
-                ])
+            # NOTE: User account is kept in Microsoft 365 (unlicensed state)
+            # Okta will handle group removals and access control
+            logger.info(f"Microsoft 365 user account retained (unlicensed): {user_email}")
+            results['actions_completed'].append('User account retained in Microsoft 365 (unlicensed - Okta manages access)')
             
             logger.info(f"Microsoft 365 termination completed for {user_email}")
             return results
@@ -455,6 +479,42 @@ try {{
             results['success'] = False
             results['actions_failed'].append(f'Exception: {str(e)}')
             return results
+
+    def delete_user_account(self, user_email: str) -> bool:
+        """Delete Microsoft 365 user account completely."""
+        try:
+            logger.info(f"🗑️ DELETING Microsoft 365 user account: {user_email}")
+            
+            # Get user ID for deletion
+            user = self.find_user_by_email(user_email)
+            if not user:
+                logger.warning(f"User {user_email} not found, skipping deletion")
+                return True  # Consider success since user doesn't exist
+                
+            user_id = user.get('id')
+            user_name = user.get('displayName', 'Unknown')
+            logger.info(f"Found user to delete: {user_name} (ID: {user_id})")
+            
+            # Make API call to delete user
+            headers = {
+                'Authorization': f'Bearer {self._get_access_token()}',
+                'Content-Type': 'application/json'
+            }
+            
+            # Delete user via Microsoft Graph API
+            delete_url = f'https://graph.microsoft.com/v1.0/users/{user_id}'
+            response = requests.delete(delete_url, headers=headers)
+            
+            if response.status_code == 204:
+                logger.info(f"SUCCESS: User completely DELETED from Microsoft 365: {user_email}")
+                return True
+            else:
+                logger.error(f"FAILED to delete user {user_email}: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"ERROR deleting Microsoft 365 user {user_email}: {e}")
+            return False
 
 # Test function
 def test_microsoft_termination():

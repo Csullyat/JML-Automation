@@ -112,3 +112,23 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Development and testing files
+dev/experiments/
+dev/utilities/execute_*
+dev/utilities/find_*
+dev/utilities/search_*
+dev/utilities/*_marc_*
+dev/utilities/*_ticket_*
+docs/README_*.md
+docs/PROJECT_STRUCTURE.md
+
+# One-off scripts and temporary files
+*_temp.py
+*_old.py
+*_backup.py
+*_test.py
+
+# PowerShell scripts (keep in scripts/ but don't track individual ones)
+scripts/test_*.ps1
+scripts/verify_*.ps1
