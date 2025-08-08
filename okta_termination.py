@@ -48,31 +48,6 @@ class OktaTermination:
             logger.error(f"Exception finding employee {employee_id}: {e}")
             return None
     
-    def find_user_by_email(self, email: str) -> Optional[Dict]:
-        """Find user by email address."""
-        try:
-            # Search by email
-            response = requests.get(
-                f"https://{self.okta_domain}/api/v1/users/{email}",
-                headers=self.headers,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                user = response.json()
-                logger.info(f"Found Okta user by email: {user.get('profile', {}).get('email', 'Unknown')}")
-                return user
-            elif response.status_code == 404:
-                logger.warning(f"User not found in Okta: {email}")
-                return None
-            else:
-                logger.error(f"Error searching for user {email}: {response.status_code}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Exception finding user {email}: {e}")
-            return None
-    
     def clear_user_sessions(self, user_id: str) -> bool:
         """Clear all active sessions for immediate security."""
         try:
@@ -103,211 +78,44 @@ class OktaTermination:
             logger.error(f"Error deactivating user {user_id}: {e}")
             return False
     
-    def find_user_by_email(self, email: str) -> Optional[Dict]:
-        """Find user by email address."""
-        try:
-            # Search for user by email
-            response = requests.get(
-                f"https://{self.okta_domain}/api/v1/users/{email}",
-                headers=self.headers,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                user_data = response.json()
-                logger.info(f"Found Okta user: {user_data.get('profile', {}).get('email', 'Unknown')}")
-                return user_data
-            elif response.status_code == 404:
-                logger.warning(f"User not found in Okta: {email}")
-                return None
-            else:
-                logger.error(f"Error finding user {email}: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Exception finding user {email}: {str(e)}")
-            return None
-    
-    def execute_complete_termination(self, user_email: str) -> Dict:
-        """Execute complete Okta termination process."""
-        logger.info(f"Starting Okta termination for {user_email}")
-        
-        results = {
-            'user_email': user_email,
-            'termination_time': datetime.now(),
-            'actions_completed': [],
-            'actions_failed': [],
-            'success': True
-        }
-        
-        try:
-            # Step 1: Find the user
-            user = self.find_user_by_email(user_email)
-            if not user:
-                results['success'] = False
-                results['actions_failed'].append('User not found in Okta')
-                return results
-            
-            user_id = user['id']
-            results['actions_completed'].append('User found in Okta')
-            
-            # Step 2: Clear all sessions (CRITICAL SECURITY STEP)
-            if self.clear_user_sessions(user_id):
-                results['actions_completed'].append('All active sessions cleared')
-            else:
-                results['actions_failed'].append('Failed to clear sessions')
-                results['success'] = False
-            
-            # Step 3: Deactivate user
-            if self.deactivate_user(user_id):
-                results['actions_completed'].append('User account deactivated')
-            else:
-                results['actions_failed'].append('Failed to deactivate user')
-                results['success'] = False
-            
-            # Step 4: Remove from all groups
-            group_result = self.remove_user_from_all_groups(user_id)
-            if group_result['success']:
-                if group_result['groups_removed'] > 0:
-                    results['actions_completed'].append(f"Removed from {group_result['groups_removed']} groups")
-                else:
-                    results['actions_completed'].append("No groups to remove")
-            else:
-                results['actions_failed'].append('Failed to remove from groups')
-            
-            logger.info(f"Okta termination completed for {user_email}")
-            return results
-            
-        except Exception as e:
-            logger.error(f"Okta termination failed for {user_email}: {e}")
-            results['success'] = False
-            results['actions_failed'].append(f'Exception: {str(e)}')
-            return results
-
     def remove_user_from_all_groups(self, user_id: str) -> Dict:
-        """
-        DISABLED: Remove user from all groups (except system groups).
-        
-        WARNING: This method is disabled because it's too dangerous - removes users from ALL groups
-        which could break other systems and applications. Use remove_user_from_specific_group() instead
-        for targeted group removal after each application's termination process.
-        """
-        logger.warning("remove_user_from_all_groups() called but is DISABLED for safety")
-        logger.warning("Use remove_user_from_specific_group() for targeted group removal")
-        return {'success': False, 'groups_removed': 0, 'error': 'Method disabled for safety'}
-    
-    def remove_user_from_specific_group(self, user_id: str, group_name: str) -> bool:
-        """Remove user from a specific Okta group by group name."""
+        """Remove user from all groups (except system groups)."""
         try:
-            logger.info(f"Searching for group: {group_name}")
-            
-            # First, find the group by name
-            search_response = requests.get(
-                f"https://{self.okta_domain}/api/v1/groups",
+            # Get user's groups
+            response = requests.get(
+                f"https://{self.okta_domain}/api/v1/users/{user_id}/groups",
                 headers=self.headers,
-                params={'q': group_name},
                 timeout=30
             )
             
-            if search_response.status_code != 200:
-                logger.error(f"Failed to search for group {group_name}: {search_response.status_code}")
-                return False
+            if response.status_code != 200:
+                return {'success': False, 'groups_removed': 0}
             
-            groups = search_response.json()
-            target_group = None
+            groups = response.json()
+            removed_count = 0
             
-            # Find exact match for group name
             for group in groups:
-                if group.get('profile', {}).get('name', '') == group_name:
-                    target_group = group
-                    break
-            
-            if not target_group:
-                logger.warning(f"Group '{group_name}' not found in Okta")
-                return False
-            
-            group_id = target_group['id']
-            logger.info(f"Found group '{group_name}' with ID: {group_id}")
-            
-            # Remove user from the specific group
-            remove_response = requests.delete(
-                f"https://{self.okta_domain}/api/v1/groups/{group_id}/users/{user_id}",
-                headers=self.headers,
-                timeout=30
-            )
-            
-            if remove_response.status_code == 204:
-                logger.info(f"Successfully removed user from group: {group_name}")
-                return True
-            elif remove_response.status_code == 404:
-                logger.info(f"User was not a member of group: {group_name}")
-                return True  # Consider this success since the end result is the same
-            else:
-                logger.error(f"Failed to remove user from group {group_name}: {remove_response.status_code} - {remove_response.text}")
-                return False
+                group_name = group.get('profile', {}).get('name', '')
                 
-        except Exception as e:
-            logger.error(f"Exception removing user from group {group_name}: {e}")
-            return False
-
-    def remove_user_from_google_workspace_group(self, user_id: str) -> bool:
-        """Remove user from the Google Workspace Okta group."""
-        return self.remove_user_from_specific_group(user_id, "SSO-Google_Workspace_EnterpriseUsers")
-    
-    def execute_complete_termination(self, user_email: str) -> Dict:
-        """Execute complete Okta termination for a user."""
-        logger.info(f"Starting Okta termination for {user_email}")
-        
-        results = {
-            'user_email': user_email,
-            'termination_time': datetime.now(),
-            'actions_completed': [],
-            'actions_failed': [],
-            'success': True
-        }
-        
-        try:
-            # Step 1: Find user
-            user = self.find_user_by_email(user_email)
-            if not user:
-                # Try by employee ID if email doesn't work
-                employee_id = user_email.split('@')[0]  # Extract potential employee ID
-                user = self.find_user_by_employee_id(employee_id)
+                # Skip system groups
+                if 'Everyone' in group_name or 'OKTA' in group_name.upper():
+                    continue
+                
+                # Remove from group
+                remove_response = requests.delete(
+                    f"https://{self.okta_domain}/api/v1/groups/{group['id']}/users/{user_id}",
+                    headers=self.headers,
+                    timeout=30
+                )
+                
+                if remove_response.status_code == 204:
+                    removed_count += 1
             
-            if not user:
-                results['success'] = False
-                results['actions_failed'].append('User not found in Okta')
-                return results
-            
-            user_id = user['id']
-            results['user_id'] = user_id  # Store user ID for later use
-            results['actions_completed'].append(f'Found user in Okta: {user_id}')
-            
-            # Step 2: Clear sessions (critical security step)
-            if self.clear_user_sessions(user_id):
-                results['actions_completed'].append('Cleared all active sessions')
-            else:
-                results['actions_failed'].append('Failed to clear sessions')
-            
-            # Step 3: Deactivate user
-            if self.deactivate_user(user_id):
-                results['actions_completed'].append('User account deactivated')
-            else:
-                results['actions_failed'].append('Failed to deactivate user')
-                results['success'] = False
-            
-            # NOTE: We do NOT remove from all groups here anymore - too dangerous!
-            # Specific group removals are handled individually in the orchestrator
-            # after each application's termination process (e.g., Microsoft 365)
-            
-            logger.info(f"Okta termination completed for {user_email}")
-            return results
+            return {'success': True, 'groups_removed': removed_count}
             
         except Exception as e:
-            logger.error(f"Okta termination failed for {user_email}: {e}")
-            results['success'] = False
-            results['actions_failed'].append(f'Exception: {str(e)}')
-            return results
+            logger.error(f"Error removing user {user_id} from groups: {e}")
+            return {'success': False, 'groups_removed': 0}
 
 def validate_okta_connection(okta_token: str) -> bool:
     """

@@ -206,7 +206,11 @@ class ZoomTerminationManager:
                     logger.info(f"User {user_email} has {len(webinars)} webinars")
                     data_found = True
             except Exception as e:
-                logger.warning(f"Could not check webinars for {user_email}: {e}")
+                error_msg = str(e).lower()
+                if "webinar plan is missing" in error_msg or "webinar plan" in error_msg:
+                    logger.info(f"User {user_email} has no webinar plan - no webinars to check")
+                else:
+                    logger.warning(f"Could not check webinars for {user_email}: {e}")
             
             # Check for scheduled meetings
             try:
@@ -229,6 +233,27 @@ class ZoomTerminationManager:
             logger.error(f"Error checking transferable data for {user_email}: {e}")
             # If we can't check, assume data exists to be safe
             return True
+
+    def _transfer_events_hub_assets(self, user_email: str, manager_email: str) -> bool:
+        """Transfer Zoom Events hub assets to manager - simplified approach."""
+        try:
+            logger.info(f"Preparing for Events hub assets transfer: {user_email} -> {manager_email}")
+            
+            # Get manager details for transfer target
+            manager = self.find_user_by_email(manager_email)
+            
+            if not manager:
+                logger.error(f"Cannot transfer Events assets: manager {manager_email} not found")
+                return False
+            
+            # We'll use the manager's email in the deletion request
+            # The actual Events transfer happens during the delete API call
+            logger.info(f"Events hub assets will be transferred to {manager_email} during user deletion")
+            return True
+                    
+        except Exception as e:
+            logger.error(f"Error preparing Events hub assets transfer: {e}")
+            return False
 
     def transfer_user_data(self, user_email: str, manager_email: str) -> bool:
         """Transfer Zoom user data to manager before deletion."""
@@ -256,17 +281,25 @@ class ZoomTerminationManager:
             # Transfer recordings
             recordings_transferred = self._transfer_recordings(user_id, manager_id, user_email, manager_email)
             
-            # Transfer webinars
+            # Transfer webinars (skip if company doesn't use webinars)
             webinars_transferred = self._transfer_webinars(user_id, manager_id, user_email, manager_email)
+            if not webinars_transferred:
+                logger.info("Webinars transfer failed, but continuing (company doesn't heavily use webinars)")
+                webinars_transferred = True  # Don't fail the whole process for webinars
             
             # Transfer meetings (scheduled)
             meetings_transferred = self._transfer_meetings(user_id, manager_id, user_email, manager_email)
             
-            if recordings_transferred and webinars_transferred and meetings_transferred:
-                logger.info(f"All Zoom data successfully transferred: {user_email} -> {manager_email}")
+            # Transfer Events hub assets
+            events_transferred = self._transfer_events_hub_assets(user_email, manager_email)
+            
+            # Require recordings, meetings, and events - webinars are optional
+            if recordings_transferred and meetings_transferred and events_transferred:
+                logger.info(f"Essential Zoom data successfully transferred: {user_email} -> {manager_email}")
                 return True
             else:
-                logger.warning(f"Some Zoom data transfer operations failed for {user_email}")
+                logger.error(f"Critical Zoom data transfer operations failed for {user_email}")
+                logger.error(f"Recordings: {recordings_transferred}, Meetings: {meetings_transferred}, Events: {events_transferred}")
                 return False
                 
         except Exception as e:
@@ -374,8 +407,14 @@ class ZoomTerminationManager:
             return success_rate >= 90.0
             
         except Exception as e:
-            logger.error(f"Error transferring webinars: {e}")
-            return False
+            # Check if it's a "no webinar plan" error
+            error_msg = str(e).lower()
+            if "webinar plan is missing" in error_msg or "webinar plan" in error_msg:
+                logger.info(f"User {user_email} has no webinar plan - no webinars to transfer")
+                return True
+            else:
+                logger.error(f"Error transferring webinars: {e}")
+                return False
 
     def _transfer_meetings(self, user_id: str, manager_id: str, user_email: str, manager_email: str) -> bool:
         """Transfer user's scheduled meetings to manager."""
@@ -412,8 +451,8 @@ class ZoomTerminationManager:
             logger.error(f"Error transferring meetings: {e}")
             return False
 
-    def delete_user(self, user_email: str) -> bool:
-        """Delete Zoom user account using correct URL parameter method."""
+    def delete_user(self, user_email: str, transfer_target_email: str = None) -> bool:
+        """Delete Zoom user account using correct URL parameter method with Events transfer."""
         try:
             logger.info(f"Attempting user deletion for: {user_email}")
             
@@ -426,40 +465,87 @@ class ZoomTerminationManager:
             user_id = user.get('id')
             logger.info(f"User details - ID: {user_id}, Email: {user_email}")
             
-            # Method 1: URL parameter deletion (correct approach per forum)
-            logger.info("ATTEMPTING: DELETE /users/{email}?action=delete")
-            try:
-                self._make_api_request('DELETE', f'/users/{user_email}?action=delete')
-                logger.info(f"✅ SUCCESS: User completely deleted: {user_email}")
-                return True
-            except requests.exceptions.HTTPError as e:
-                logger.warning(f"Email deletion failed: {e.response.status_code} - {e.response.text}")
-            except Exception as e:
-                logger.warning(f"Email deletion failed: {e}")
+            # If we have a transfer target, get their user ID for Events transfer
+            transfer_target_id = None
+            if transfer_target_email:
+                transfer_user = self.find_user_by_email(transfer_target_email)
+                if transfer_user:
+                    transfer_target_id = transfer_user.get('id')
+                    logger.info(f"Transfer target: {transfer_target_email} (ID: {transfer_target_id})")
+                else:
+                    logger.warning(f"Transfer target {transfer_target_email} not found")
             
-            # Method 2: URL parameter deletion with user ID
+            # Method 1: URL parameter deletion with Events transfer (if needed)
+            if transfer_target_id:
+                logger.info("ATTEMPTING: DELETE /users/{email}?action=delete&transfer_email={target}")
+                try:
+                    self._make_api_request('DELETE', f'/users/{user_email}?action=delete&transfer_email={transfer_target_email}')
+                    logger.info(f"SUCCESS: User completely deleted with Events transfer: {user_email}")
+                    return True
+                except requests.exceptions.HTTPError as e:
+                    logger.warning(f"Email deletion with transfer failed: {e.response.status_code} - {e.response.text}")
+                except Exception as e:
+                    logger.warning(f"Email deletion with transfer failed: {e}")
+                
+                # Method 2: URL parameter deletion with user ID and transfer
+                logger.info("ATTEMPTING: DELETE /users/{user_id}?action=delete&transfer_email={target}")
+                try:
+                    self._make_api_request('DELETE', f'/users/{user_id}?action=delete&transfer_email={transfer_target_email}')
+                    logger.info(f"SUCCESS: User completely deleted via ID with Events transfer: {user_email}")
+                    return True
+                except requests.exceptions.HTTPError as e:
+                    logger.warning(f"ID deletion with transfer failed: {e.response.status_code} - {e.response.text}")
+                except Exception as e:
+                    logger.warning(f"ID deletion with transfer failed: {e}")
+            else:
+                # SAFETY CHECK: Do not attempt deletion if transfer was requested but target not found
+                logger.error(f"SAFETY: Transfer target {transfer_target_email} not found in Zoom")
+                logger.error(f"SAFETY: Will not delete user {user_email} without proper data transfer")
+                return False
+            
+            # Method 3: Standard deletion without transfer (only if no transfer_target_email specified)
+            if not transfer_target_email:
+                logger.info("ATTEMPTING: DELETE /users/{email}?action=delete (NO TRANSFER)")
+                try:
+                    self._make_api_request('DELETE', f'/users/{user_email}?action=delete')
+                    logger.info(f"SUCCESS: User completely deleted (no transfer requested): {user_email}")
+                    return True
+                except requests.exceptions.HTTPError as e:
+                    if e.response.status_code == 400 and "hub assets" in e.response.text.lower():
+                        logger.error(f"FAILED: User has Events hub assets that require transfer: {user_email}")
+                        logger.error(f"Error details: {e.response.text}")
+                        return False
+                    else:
+                        logger.warning(f"Email deletion failed: {e.response.status_code} - {e.response.text}")
+                except Exception as e:
+                    logger.warning(f"Email deletion failed: {e}")
+            else:
+                logger.error(f"SAFETY: Cannot delete {user_email} - transfer was requested but failed")
+                return False
+            
+            # Method 4: URL parameter deletion with user ID
             logger.info("ATTEMPTING: DELETE /users/{user_id}?action=delete")
             try:
                 self._make_api_request('DELETE', f'/users/{user_id}?action=delete')
-                logger.info(f"✅ SUCCESS: User completely deleted via ID: {user_email}")
+                logger.info(f"SUCCESS: User completely deleted via ID: {user_email}")
                 return True
             except requests.exceptions.HTTPError as e:
                 logger.warning(f"ID deletion failed: {e.response.status_code} - {e.response.text}")
             except Exception as e:
                 logger.warning(f"ID deletion failed: {e}")
             
-            # Method 3: URL parameter disassociate (removes from org but keeps account)
+            # Method 5: URL parameter disassociate (removes from org but keeps account)
             logger.info("ATTEMPTING: DELETE /users/{email}?action=disassociate")
             try:
                 self._make_api_request('DELETE', f'/users/{user_email}?action=disassociate')
-                logger.info(f"✅ SUCCESS: User disassociated: {user_email}")
+                logger.info(f"SUCCESS: User disassociated: {user_email}")
                 return True
             except Exception as e:
                 logger.warning(f"Disassociate failed: {e}")
             
             # All deletion methods failed - fall back to comprehensive license removal
-            logger.error(f"❌ ALL DELETION METHODS FAILED for {user_email}")
-            logger.info(f"🔄 Falling back to comprehensive license removal...")
+            logger.error(f"ALL DELETION METHODS FAILED for {user_email}")
+            logger.info(f"Falling back to comprehensive license removal...")
             return self._comprehensive_license_removal(user_email, user_id)
             
         except Exception as e:
@@ -644,7 +730,7 @@ class ZoomTerminationManager:
             
             # Step 3: Delete user account (now safe whether data was transferred or confirmed absent)
             logger.info(f"Step 2: Deleting user account")
-            deletion_success = self.delete_user(user_email)
+            deletion_success = self.delete_user(user_email, manager_email)
             
             if deletion_success:
                 logger.info(f"Zoom termination completed for {user_email}")

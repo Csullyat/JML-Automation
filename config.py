@@ -157,50 +157,6 @@ def get_microsoft_graph_credentials() -> Dict[str, str]:
             logger.error(f"Could not retrieve Microsoft Graph credentials: {e}")
             return {}
 
-def get_google_service_account_key() -> Dict[str, Any]:
-    """Get Google Workspace service account key from 1Password."""
-    try:
-        # Try service account first, fallback to regular CLI
-        service_account_json = get_secret_from_1password_service_account("op://IT/google-workspace-service-account/credential")
-        return json.loads(service_account_json)
-    except:
-        print("Service account failed, falling back to regular 1Password CLI")
-        try:
-            service_account_json = get_secret_from_1password("op://IT/google-workspace-service-account/credential")
-            return json.loads(service_account_json)
-        except Exception as e:
-            logger.error(f"Could not retrieve Google service account key: {e}")
-            return {}
-
-def get_zoom_credentials() -> Dict[str, str]:
-    """Get Zoom API credentials from 1Password."""
-    try:
-        # Try service account first, fallback to regular CLI
-        api_key = get_secret_from_1password_service_account("op://IT/Zoom_API_Key/password")
-        api_secret = get_secret_from_1password_service_account("op://IT/Zoom_API_Secret/password")
-        account_id = get_secret_from_1password_service_account("op://IT/Zoom_Account_ID/password")
-        
-        return {
-            'api_key': api_key,
-            'api_secret': api_secret,
-            'account_id': account_id
-        }
-    except:
-        print("Service account failed, falling back to regular 1Password CLI")
-        try:
-            api_key = get_secret_from_1password("op://IT/Zoom_API_Key/password")
-            api_secret = get_secret_from_1password("op://IT/Zoom_API_Secret/password")
-            account_id = get_secret_from_1password("op://IT/Zoom_Account_ID/password")
-            
-            return {
-                'api_key': api_key,
-                'api_secret': api_secret,
-                'account_id': account_id
-            }
-        except Exception as e:
-            logger.error(f"Failed to get Zoom credentials: {e}")
-            raise
-
 def validate_configuration() -> Dict[str, bool]:
     """
     Validate all required configuration items are available.
@@ -241,14 +197,5 @@ def validate_configuration() -> Dict[str, bool]:
                                          graph_creds.get('tenant_id'))
     except:
         results['microsoft_graph'] = False
-    
-    # Google Workspace validation
-    try:
-        google_creds = get_google_service_account_key()
-        results['google_workspace'] = bool(google_creds.get('type') == 'service_account' and
-                                          google_creds.get('client_email') and
-                                          google_creds.get('private_key'))
-    except:
-        results['google_workspace'] = False
     
     return results

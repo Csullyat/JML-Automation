@@ -3,7 +3,6 @@
 import logging
 import requests
 import json
-import time
 from typing import Dict, Optional, List
 from datetime import datetime
 from config import get_microsoft_graph_credentials
@@ -17,17 +16,14 @@ class MicrosoftTermination:
         """Initialize Microsoft Graph client."""
         self.credentials = get_microsoft_graph_credentials()
         self.access_token = None
-        self.token_expires_at = 0  # Token expiration timestamp
         self.graph_endpoint = "https://graph.microsoft.com/v1.0"
-        self._exchange_session_active = False  # Track if Exchange session is active
         
         if not self.credentials.get('client_id'):
             raise Exception("Microsoft Graph credentials not available")
     
     def _get_access_token(self) -> str:
-        """Get OAuth2 access token for Microsoft Graph with caching."""
-        # Check if we have a valid cached token
-        if self.access_token and time.time() < self.token_expires_at:
+        """Get OAuth2 access token for Microsoft Graph."""
+        if self.access_token:
             return self.access_token
         
         token_url = f"https://login.microsoftonline.com/{self.credentials['tenant_id']}/oauth2/v2.0/token"
@@ -45,10 +41,6 @@ class MicrosoftTermination:
             
             token_data = response.json()
             self.access_token = token_data['access_token']
-            
-            # Cache token with 5-minute buffer before expiration
-            expires_in = token_data.get('expires_in', 3600)
-            self.token_expires_at = time.time() + expires_in - 300
             
             logger.info("Successfully obtained Microsoft Graph access token")
             return self.access_token
@@ -154,8 +146,15 @@ class MicrosoftTermination:
             # Try automated approach with certificate authentication
             ps_script = f"""
 try {{
-    Write-Host "Importing Exchange Online Management module..."
-    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
+    Write-Host "Importing Exchange Online Management module with full path..."
+    $modulePath = "$env:USERPROFILE\\Documents\\PowerShell\\Modules\\ExchangeOnlineManagement\\3.8.0\\ExchangeOnlineManagement.psd1"
+    if (Test-Path $modulePath) {{
+        Import-Module $modulePath -Force
+        Write-Host "Module imported successfully from: $modulePath"
+    }} else {{
+        Write-Host "Module not found at: $modulePath"
+        Import-Module ExchangeOnlineManagement -Force
+    }}
     
     Write-Host "Connecting to Exchange Online with certificate authentication..."
     # Using certificate-based authentication for unattended automation
@@ -282,7 +281,12 @@ try {{
             ps_script = f"""
 try {{
     Write-Host "Importing Exchange Online Management module..."
-    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
+    $modulePath = "$env:USERPROFILE\\Documents\\PowerShell\\Modules\\ExchangeOnlineManagement\\3.8.0\\ExchangeOnlineManagement.psd1"
+    if (Test-Path $modulePath) {{
+        Import-Module $modulePath -Force
+    }} else {{
+        Import-Module ExchangeOnlineManagement -Force
+    }}
     
     Write-Host "Connecting to Exchange Online with certificate authentication..."
     Connect-ExchangeOnline -AppId '{app_id}' -Organization '{organization}' -CertificateThumbprint '{cert_thumbprint}' -ShowBanner:$false
