@@ -1,42 +1,80 @@
-# README.md - Termination Automation System
-
 # Employee Termination Automation System
 
-Automated system for processing employee termination requests from SolarWinds Service Desk and performing user deactivation in Okta with Slack notifications.
+Enterprise-grade automated system for processing employee termination requests with comprehensive multi-platform user deactivation, data transfer, and license cleanup.
 
-## 🎯 Purpose
+## Purpose
 
 This system automatically:
-- Monitors SolarWinds Service Desk for termination requests
-- Deactivates user accounts in Okta
-- Removes users from all groups (except system groups)
-- Sends real-time Slack notifications
+- Extracts termination requests from SolarWinds Service Desk
+- Deactivates user accounts across all enterprise platforms
+- Transfers data and removes users from all systems
+- Manages license cleanup and cost optimization
 - Provides comprehensive logging and audit trails
+- Sends real-time Slack notifications for security team visibility
 
-## 🏗️ Architecture
+## Architecture
 
 ### Core Components
 
-- **`termination_main.py`** - Main orchestration script
-- **`okta_termination.py`** - Okta API integration for user deactivation
-- **`ticket_processor.py`** - Service desk ticket processing
-- **`slack_notifications.py`** - Slack integration for notifications
-- **`config.py`** - Secure credential management via 1Password
-- **`logging_system.py`** - Comprehensive logging framework
+- **`enterprise_termination_orchestrator.py`** - Main orchestration and workflow engine
+- **`okta_termination.py`** - Okta user deactivation and group management
+- **`google_termination.py`** - Google Workspace user termination and data transfer
+- **`microsoft_termination.py`** - Microsoft 365/Exchange user termination and mailbox conversion
+- **`zoom_termination.py`** - Zoom user deletion with data transfer and license cleanup
+- **`termination_extractor.py`** - SolarWinds Service Desk ticket processing
+- **`slack_notifications.py`** - Slack integration for audit notifications
+- **`config.py`** - Secure credential management via 1Password Service Account
+- **`logging_system.py`** - Enterprise logging framework with audit trails
 
-### Security Features
+### Security & Compliance Features
 
-- **No hardcoded credentials** - All secrets stored in 1Password
-- **Service Account integration** - Unattended operation via 1Password Service Account
-- **Windows Credential Manager** - Secure local token storage
-- **Comprehensive audit logs** - All actions logged with timestamps
-- **Test mode** - Safe testing without affecting production data
+## Enterprise Termination Workflow
 
-## 🚀 Setup Instructions
+### 6-Phase Processing Pipeline
+
+1. **Phase 1: Ticket Extraction**
+   - Extract termination requests from SolarWinds Service Desk
+   - Parse user details and manager information
+   - Validate termination criteria
+
+2. **Phase 2: Okta Deactivation**
+   - Deactivate user account in Okta
+   - Remove from all groups (preserve system groups)
+   - Terminate active sessions
+
+3. **Phase 3: Microsoft 365 Termination**
+   - Convert mailbox to shared mailbox
+   - Grant manager access to shared mailbox
+   - Remove user licenses and disable account
+
+4. **Phase 4: Zoom Termination**
+   - Transfer meetings, recordings, and webinars to manager
+   - Verify 90% data transfer success threshold
+   - Delete user account to free expensive licenses
+   - Remove from Zoom SSO groups in Okta
+
+5. **Phase 5: Google Workspace Termination**
+   - Suspend user account in Google Workspace
+   - Transfer Google Drive ownership to manager
+   - Remove from Google SSO groups
+
+6. **Phase 6: Final Cleanup**
+   - Send comprehensive Slack notifications
+   - Update ticket status in Service Desk
+   - Generate audit reports
+
+### Performance Optimizations
+
+- **Token Caching**: Credentials cached in memory for bulk operations
+- **Parallel Processing**: Multiple terminations processed concurrently
+- **Service Account**: No user interaction required for 1Password access
+- **Efficient API Usage**: Minimized API calls through intelligent caching
+
+## Setup Instructions
 
 ### Prerequisites
 
-1. **1Password CLI** installed and configured
+1. **1Password CLI** installed and configured with Service Account
 2. **PowerShell CredentialManager module**:
    ```powershell
    Install-Module -Name CredentialManager -Force
@@ -48,7 +86,7 @@ This system automatically:
 
 ### 1Password Configuration
 
-Create the following items in your 1Password "Employee" vault:
+Create the following items in your 1Password "IT" vault:
 
 - **Okta API Token** (field: `credential`)
 - **Okta Domain** (field: `credential`) - e.g., `company.okta.com`

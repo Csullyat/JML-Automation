@@ -16,6 +16,7 @@ from termination_extractor import fetch_tickets, parse_termination_ticket
 from okta_termination import OktaTermination
 from microsoft_termination import MicrosoftTermination
 from google_termination import GoogleTerminationManager
+from zoom_termination import ZoomTerminationManager
 from slack_notifications import send_termination_notification
 from logging_system import setup_logging
 
@@ -39,6 +40,16 @@ class EnterpriseTerminationOrchestrator:
                 logger.warning(f"Google Workspace termination disabled: {e}")
                 self.google_termination = None
                 self.google_enabled = False
+            
+            # Initialize Zoom termination (may fail if credentials not set up)
+            try:
+                self.zoom_termination = ZoomTerminationManager()
+                self.zoom_enabled = True
+                logger.info("Zoom termination enabled")
+            except Exception as e:
+                logger.warning(f"Zoom termination disabled: {e}")
+                self.zoom_termination = None
+                self.zoom_enabled = False
             
             # Note: Slack notifications disabled during testing phase
             self.slack_notifications = None
@@ -218,7 +229,56 @@ class EnterpriseTerminationOrchestrator:
                 termination_results['summary'].append("Google Workspace termination unavailable")
                 termination_results['google_results'] = {'success': False, 'error': 'Service unavailable'}
             
-            # Step 4: Update ticket status if ticket ID provided
+            # Step 4: Zoom Termination (data transfer and user deletion)
+            logger.info("Phase 4: Zoom data transfer and user deletion")
+            if self.zoom_enabled and manager_email:
+                try:
+                    zoom_result = self.zoom_termination.execute_complete_termination(user_email, manager_email)
+                    
+                    if zoom_result:
+                        logger.info("Zoom termination phase completed successfully")
+                        termination_results['summary'].append("Zoom termination completed")
+                        termination_results['zoom_results'] = {'success': True}
+                        
+                        # Step 4.5: Remove from Zoom Okta groups (after data backup)
+                        logger.info("Phase 4.5: Removing user from Zoom Okta groups")
+                        zoom_groups = ["SSO-Zoom_Member_Basic", "SSO-Zoom_Member_Pro", "SSO-Zoom_Member_Pro_Phone"]
+                        zoom_groups_removed = 0
+                        
+                        for group_name in zoom_groups:
+                            try:
+                                group_removed = self.okta_termination.remove_user_from_specific_group(user_email, group_name)
+                                if group_removed:
+                                    zoom_groups_removed += 1
+                                    logger.info(f"Successfully removed user from {group_name}")
+                            except Exception as e:
+                                logger.warning(f"Failed to remove user from {group_name}: {e}")
+                        
+                        logger.info(f"Removed user from {zoom_groups_removed}/{len(zoom_groups)} Zoom groups")
+                        termination_results['summary'].append(f"Removed from {zoom_groups_removed}/{len(zoom_groups)} Zoom groups")
+                    else:
+                        logger.warning("Zoom termination phase had issues")
+                        termination_results['summary'].append("Zoom termination had issues")
+                        termination_results['zoom_results'] = {'success': False}
+                        
+                except Exception as e:
+                    logger.error(f"Error in Zoom termination: {e}")
+                    termination_results['summary'].append(f"Zoom termination error: {str(e)}")
+                    termination_results['zoom_results'] = {'success': False, 'error': str(e)}
+            elif not self.zoom_enabled:
+                logger.info("Zoom termination disabled - credentials not configured")
+                termination_results['summary'].append("Zoom termination skipped - not configured")
+                termination_results['zoom_results'] = {'success': True, 'skipped': True, 'reason': 'Not configured'}
+            elif not manager_email:
+                logger.warning("No manager email provided - skipping Zoom data transfer")
+                termination_results['summary'].append("Zoom termination skipped - no manager")
+                termination_results['zoom_results'] = {'success': False, 'error': 'No manager provided'}
+            else:
+                logger.warning("Zoom termination unavailable")
+                termination_results['summary'].append("Zoom termination unavailable")
+                termination_results['zoom_results'] = {'success': False, 'error': 'Service unavailable'}
+            
+            # Step 5: Update ticket status if ticket ID provided
             if ticket_id:
                 try:
                     logger.info(f"Updating ticket {ticket_id} status")
@@ -235,13 +295,16 @@ class EnterpriseTerminationOrchestrator:
             microsoft_success = termination_results['microsoft_results'].get('success', False)
             google_result = termination_results.get('google_results', {})
             google_success = google_result.get('success', False) or google_result.get('skipped', False)
+            zoom_result = termination_results.get('zoom_results', {})
+            zoom_success = zoom_result.get('success', False) or zoom_result.get('skipped', False)
             
             # Success if Okta works and either manager wasn't provided or all manager-dependent services work
             termination_results['overall_success'] = (okta_success and 
                                                     (microsoft_success or not manager_email) and
-                                                    (google_success or not manager_email or not self.google_enabled))
+                                                    (google_success or not manager_email or not self.google_enabled) and
+                                                    (zoom_success or not manager_email or not self.zoom_enabled))
             
-            # Step 5: Send Slack notification (disabled during testing)
+            # Step 6: Send Slack notification (disabled during testing)
             try:
                 if self.slack_notifications:
                     self.send_termination_notification(termination_results)

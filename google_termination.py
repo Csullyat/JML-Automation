@@ -150,31 +150,40 @@ class GoogleTerminationManager:
             transfer_id = result.get('id')
             logger.info(f"Data transfer initiated with ID: {transfer_id}")
             
-            # Monitor transfer progress
-            return self._monitor_data_transfer(transfer_id, user_email, manager_email)
+            # Monitor transfer progress (15 minute timeout)
+            return self._monitor_data_transfer(transfer_id, user_email, manager_email, max_wait_time=900)
             
         except Exception as e:
             logger.error(f"Error transferring data from {user_email} to {manager_email}: {e}")
             return False
 
     def _monitor_data_transfer(self, transfer_id: str, user_email: str, manager_email: str, 
-                              max_wait_time: int = 300) -> bool:
-        """Monitor data transfer progress with optimized polling."""
+                              max_wait_time: int = None) -> bool:
+        """Monitor data transfer progress with optimized polling. Waits indefinitely if max_wait_time is None."""
         try:
-            logger.info(f"Monitoring data transfer {transfer_id} (max wait: {max_wait_time}s)")
+            if max_wait_time:
+                logger.info(f"Monitoring data transfer {transfer_id} (max wait: {max_wait_time}s)")
+            else:
+                logger.info(f"Monitoring data transfer {transfer_id} (no timeout - will wait as long as needed)")
             
             start_time = time.time()
             poll_interval = 5  # Start with 5-second polls for faster response
             
-            while time.time() - start_time < max_wait_time:
+            while True:
+                # Check if we've exceeded max wait time (if specified)
+                if max_wait_time and (time.time() - start_time >= max_wait_time):
+                    logger.warning(f"Data transfer monitoring timeout after {max_wait_time}s")
+                    return False
+                
                 # Check transfer status
                 result = self.datatransfer_service.transfers().get(dataTransferId=transfer_id).execute()
                 
                 overall_status = result.get('overallTransferStatusCode')
-                logger.info(f"Transfer status: {overall_status}")
+                elapsed_minutes = (time.time() - start_time) / 60
+                logger.info(f"Transfer status: {overall_status} (elapsed: {elapsed_minutes:.1f} minutes)")
                 
                 if overall_status == 'completed':
-                    logger.info(f"Data transfer completed successfully: {user_email} -> {manager_email}")
+                    logger.info(f"Data transfer completed successfully: {user_email} -> {manager_email} (total time: {elapsed_minutes:.1f} minutes)")
                     return True
                 elif overall_status == 'failed':
                     logger.error(f"Data transfer failed: {user_email} -> {manager_email}")
@@ -182,19 +191,18 @@ class GoogleTerminationManager:
                 elif overall_status in ['inProgress', 'pending']:
                     # Adaptive polling - increase interval for longer transfers
                     elapsed = time.time() - start_time
-                    if elapsed > 60:  # After 1 minute, poll every 15 seconds
+                    if elapsed > 300:  # After 5 minutes, poll every 60 seconds
+                        poll_interval = 60
+                    elif elapsed > 60:  # After 1 minute, poll every 30 seconds
+                        poll_interval = 30
+                    elif elapsed > 30:  # After 30 seconds, poll every 15 seconds
                         poll_interval = 15
-                    elif elapsed > 30:  # After 30 seconds, poll every 10 seconds
-                        poll_interval = 10
                     
-                    logger.info(f"Data transfer in progress, waiting {poll_interval} seconds...")
+                    logger.info(f"Data transfer in progress, waiting {poll_interval} seconds... (elapsed: {elapsed_minutes:.1f} minutes)")
                     time.sleep(poll_interval)
                 else:
                     logger.warning(f"Unknown transfer status: {overall_status}")
                     time.sleep(poll_interval)
-            
-            logger.warning(f"Data transfer monitoring timeout after {max_wait_time}s")
-            return False
             
         except Exception as e:
             logger.error(f"Error monitoring data transfer {transfer_id}: {e}")

@@ -12,6 +12,9 @@ google-auth>=2.22.0
 google-auth-oauthlib>=1.0.0
 google-auth-httplib2>=0.1.0
 
+# Zoom API support
+PyJWT>=2.8.0
+
 # 1Password CLI integration (ensure op CLI is installed separately)
 # No Python package needed for 1Password CLI
 
