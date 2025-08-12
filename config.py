@@ -129,6 +129,15 @@ def get_zoom_credentials() -> tuple[str, str, str]:
     account_id = get_secret_from_1password_service_account("op://IT/Zoom_Account_ID/password")
     return api_key, api_secret, account_id
 
+def get_zoom_credentials_dict() -> dict:
+    """Get Zoom API credentials as dictionary for zoom_termination module."""
+    api_key, api_secret, account_id = get_zoom_credentials()
+    return {
+        'client_id': api_key,
+        'client_secret': api_secret,
+        'account_id': account_id
+    }
+
 def get_exchange_credentials() -> dict:
     """Get Exchange Online credentials from 1Password."""
     return {
@@ -136,6 +145,40 @@ def get_exchange_credentials() -> dict:
         'app_id': get_secret_from_1password_service_account("op://IT/microsoft-graph-api/username"),
         'client_secret': get_secret_from_1password_service_account("op://IT/microsoft-graph-api/password")
     }
+
+# Configuration validation functions for orchestrator
+def get_configuration_summary() -> dict:
+    """Get a summary of all configuration status."""
+    try:
+        # Test core credentials
+        get_okta_token()
+        okta_status = True
+    except:
+        okta_status = False
+    
+    try:
+        get_samanage_token()
+        samanage_status = True
+    except:
+        samanage_status = False
+    
+    # Test 1Password service account
+    try:
+        token = get_service_account_token_from_credential_manager()
+        onepassword_status = bool(token)
+    except:
+        onepassword_status = False
+    
+    return {
+        'onepassword_service_account': onepassword_status,
+        'component_validation': {
+            'okta_token': okta_status,
+            'samanage_token': samanage_status
+        },
+        'critical_components_ready': all([okta_status, samanage_status, onepassword_status]),
+        'all_components_ready': all([okta_status, samanage_status, onepassword_status])
+    }
+
 # Configuration validation functions for orchestrator
 def get_configuration_summary() -> dict:
     """Get a summary of all configuration status."""
