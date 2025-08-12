@@ -10,18 +10,25 @@ from config import get_solarwinds_credentials, SAMANAGE_BASE_URL
 
 logger = logging.getLogger(__name__)
 
-# Get the token once at module level
-token, _ = get_solarwinds_credentials()
-HEADERS = {
-    "X-Samanage-Authorization": f"Bearer {token}",
-    "Accept": "application/vnd.samanage.v2.1+json"
-}
+# Initialize headers lazily to avoid import-time credential issues
+HEADERS = None
+
+def get_headers():
+    """Get headers with token, initializing if needed."""
+    global HEADERS
+    if HEADERS is None:
+        token, _ = get_solarwinds_credentials()
+        HEADERS = {
+            "X-Samanage-Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.samanage.v2.1+json"
+        }
+    return HEADERS
 
 # Termination subcategory ID from our analysis
 TERMINATION_SUBCATEGORY_ID = 1574220  # "Termination" subcategory in Human Resources
 
-# States that represent "active" termination requests
-ACTIVE_STATES = {"New", "Assigned", "Auto-Assigned", "In Progress"}
+# States that represent "active" termination requests - ONLY Awaiting Input for Employee Termination
+ACTIVE_STATES = {"Awaiting Input"}
 
 def fetch_page(page: int, per_page: int) -> List[Dict]:
     """Fetch a page of termination tickets."""
@@ -34,7 +41,7 @@ def fetch_page(page: int, per_page: int) -> List[Dict]:
     }
 
     logger.debug(f"Fetching page {page}...")
-    resp = requests.get(f"{SAMANAGE_BASE_URL}/incidents.json", headers=HEADERS, params=params)
+    resp = requests.get(f"{SAMANAGE_BASE_URL}/incidents.json", headers=get_headers(), params=params)
 
     if resp.status_code != 200:
         print(f"Error on page {page}: {resp.status_code}: {resp.text}")

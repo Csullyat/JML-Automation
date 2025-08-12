@@ -1,16 +1,14 @@
-# config.py - Clean 1Password service account integration for termination automation
+# config.py
 import subprocess
 import os
-import json
-from google.oauth2 import service_account
 
-# Base URLs and constants
 OKTA_ORG_URL = "https://filevine.okta.com"
 SAMANAGE_BASE_URL = "https://api.samanage.com"
 
 def get_service_account_token_from_credential_manager():
     """Get the 1Password service account token from Windows Credential Manager."""
     try:
+        # Use PowerShell script file with proper module path handling
         script_path = os.path.join(os.path.dirname(__file__), 'get_credential.ps1')
         result = subprocess.run([
             'powershell', '-ExecutionPolicy', 'Bypass', '-File', script_path
@@ -21,17 +19,20 @@ def get_service_account_token_from_credential_manager():
         else:
             print(f"Failed to retrieve service account token: {result.stderr}")
             return None
+            
     except Exception as e:
         print(f"Error retrieving service account token: {e}")
         return None
 
 def get_secret_from_1password_service_account(resource_path: str) -> str:
-    """Retrieve a secret using 1Password Service Account."""
+    """Retrieve a secret using 1Password Service Account (via stored token)."""
     try:
+        # Get the service account token from Windows Credential Manager
         service_token = get_service_account_token_from_credential_manager()
         if not service_token:
             raise Exception("Could not retrieve service account token from credential manager")
         
+        # Use the service account token with 1Password CLI
         env = {"OP_SERVICE_ACCOUNT_TOKEN": service_token}
         result = subprocess.run(['op', 'read', resource_path], 
                               capture_output=True, 
@@ -43,14 +44,9 @@ def get_secret_from_1password_service_account(resource_path: str) -> str:
         print(f"Error accessing 1Password with service account: {e}")
         raise
 
-# Core credential functions
 def get_okta_token() -> str:
     """Get the Okta API token from 1Password."""
     return get_secret_from_1password_service_account("op://IT/okta-api-token/password")
-
-def get_okta_domain() -> str:
-    """Get Okta domain."""
-    return "filevine.okta.com"
 
 def get_samanage_token() -> str:
     """Get the Samanage API token from 1Password."""
@@ -61,13 +57,9 @@ def get_solarwinds_credentials() -> tuple[str, str]:
     token = get_secret_from_1password_service_account("op://IT/samanage-api-token/password")
     return token, ""
 
-def get_samanage_base_url() -> str:
-    """Get SolarWinds Service Desk base URL.""" 
-    return SAMANAGE_BASE_URL
-
-def get_samanage_subdomain() -> str:
-    """Get SolarWinds Service Desk subdomain."""
-    return "it"
+def get_google_service_account_credentials() -> str:
+    """Get Google service account credentials from 1Password."""
+    return get_secret_from_1password_service_account("op://IT/google-workspace-service-account/credential")
 
 def get_microsoft_credentials() -> tuple[str, str, str]:
     """Get Microsoft Graph API credentials from 1Password."""
@@ -75,52 +67,6 @@ def get_microsoft_credentials() -> tuple[str, str, str]:
     client_id = get_secret_from_1password_service_account("op://IT/microsoft-graph-api/username") 
     client_secret = get_secret_from_1password_service_account("op://IT/microsoft-graph-api/password")
     return tenant_id, client_id, client_secret
-
-def get_microsoft_graph_credentials() -> dict:
-    """Get Microsoft Graph API credentials as dictionary."""
-    tenant_id, client_id, client_secret = get_microsoft_credentials()
-    return {
-        'tenant_id': tenant_id,
-        'client_id': client_id,
-        'client_secret': client_secret
-    }
-
-def get_google_service_account_credentials():
-    """Get Google service account credentials as proper credentials object."""
-    try:
-        # Get the JSON credential from 1Password
-        json_creds = get_secret_from_1password_service_account("op://IT/google-workspace-service-account/credential")
-        
-        # Parse JSON and create service account credentials
-        creds_info = json.loads(json_creds)
-        credentials = service_account.Credentials.from_service_account_info(
-            creds_info,
-            scopes=[
-                'https://www.googleapis.com/auth/admin.directory.user',
-                'https://www.googleapis.com/auth/admin.directory.group',
-                'https://www.googleapis.com/auth/gmail.modify',
-                'https://www.googleapis.com/auth/drive'
-            ]
-        )
-        
-        # Delegate to admin user for domain-wide delegation
-        delegated_credentials = credentials.with_subject('admin@filevine.com')
-        return delegated_credentials
-        
-    except Exception as e:
-        print(f"Error creating Google service account credentials: {e}")
-        raise
-
-def get_google_credentials() -> dict:
-    """Get Google credentials info for compatibility."""
-    return {
-        'domain': 'filevine.com',
-        'admin_email': 'admin@filevine.com'
-    }
-
-def get_google_workspace_domain() -> str:
-    """Get Google Workspace domain."""
-    return "filevine.com"
 
 def get_zoom_credentials() -> tuple[str, str, str]:
     """Get Zoom API credentials from 1Password."""
@@ -136,35 +82,53 @@ def get_exchange_credentials() -> dict:
         'app_id': get_secret_from_1password_service_account("op://IT/microsoft-graph-api/username"),
         'client_secret': get_secret_from_1password_service_account("op://IT/microsoft-graph-api/password")
     }
-# Configuration validation functions for orchestrator
-def get_configuration_summary() -> dict:
-    """Get a summary of all configuration status."""
+
+# Test function to validate all credentials
+def test_credential_access():
+    """Test access to all required credentials."""
     try:
-        # Test core credentials
-        get_okta_token()
-        okta_status = True
-    except:
-        okta_status = False
-    
-    try:
-        get_samanage_token()
-        samanage_status = True
-    except:
-        samanage_status = False
-    
-    # Test 1Password service account
-    try:
+        print("Testing 1Password service account access...")
+        
+        # Test basic service account token retrieval
         token = get_service_account_token_from_credential_manager()
-        onepassword_status = bool(token)
-    except:
-        onepassword_status = False
-    
-    return {
-        'onepassword_service_account': onepassword_status,
-        'component_validation': {
-            'okta_token': okta_status,
-            'samanage_token': samanage_status
-        },
-        'critical_components_ready': all([okta_status, samanage_status, onepassword_status]),
-        'all_components_ready': all([okta_status, samanage_status, onepassword_status])
-    }
+        if not token:
+            raise Exception("Failed to retrieve service account token")
+        print(f"✓ Service account token retrieved (length: {len(token)})")
+        
+        # Test each credential that we know exists
+        credentials_to_test = [
+            ("Okta API token", lambda: get_okta_token()),
+            ("Samanage API token", lambda: get_samanage_token()),
+        ]
+        
+        # Test optional credentials (might not exist)
+        optional_credentials = [
+            ("Google service account", lambda: get_google_service_account_credentials()),
+            ("Microsoft Graph credentials", lambda: get_microsoft_credentials()),
+            ("Zoom API credentials", lambda: get_zoom_credentials()),
+            ("Exchange Online credentials", lambda: get_exchange_credentials())
+        ]
+        
+        for name, func in credentials_to_test:
+            try:
+                result = func()
+                print(f"✓ {name} - accessible")
+            except Exception as e:
+                print(f"✗ {name} - failed: {e}")
+                return False  # Core credentials must work
+        
+        for name, func in optional_credentials:
+            try:
+                result = func()
+                print(f"✓ {name} - accessible")
+            except Exception as e:
+                print(f"⚠ {name} - not configured (optional): {e}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"Credential test failed: {e}")
+        return False
+
+if __name__ == "__main__":
+    test_credential_access()

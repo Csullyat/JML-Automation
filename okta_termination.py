@@ -116,6 +116,172 @@ class OktaTermination:
         except Exception as e:
             logger.error(f"Error removing user {user_id} from groups: {e}")
             return {'success': False, 'groups_removed': 0}
+    
+    def get_user_by_email(self, email: str) -> Optional[Dict]:
+        """Get user by email address."""
+        try:
+            response = requests.get(
+                f"https://{self.okta_domain}/api/v1/users/{email}",
+                headers=self.headers,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 404:
+                logger.warning(f"User {email} not found in Okta")
+                return None
+            else:
+                logger.error(f"Error getting user {email}: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Exception getting user {email}: {e}")
+            return None
+    
+    def execute_complete_termination(self, user_email: str) -> Dict:
+        """
+        Execute complete Okta termination for a user.
+        
+        Args:
+            user_email: Email address of user to terminate
+            
+        Returns:
+            Dict with termination results
+        """
+        logger.info(f"🔒 Starting Okta termination for {user_email}")
+        
+        start_time = datetime.now()
+        actions_completed = []
+        actions_failed = []
+        warnings = []
+        
+        try:
+            # Step 1: Find the user
+            logger.info(f"Step 1: Looking up user {user_email}")
+            user = self.get_user_by_email(user_email)
+            
+            if not user:
+                return {
+                    'success': False,
+                    'user_email': user_email,
+                    'error': 'User not found in Okta',
+                    'actions_completed': actions_completed,
+                    'actions_failed': ['User lookup failed'],
+                    'warnings': warnings
+                }
+            
+            user_id = user['id']
+            user_name = user.get('profile', {}).get('displayName', user_email)
+            user_status = user['status']
+            
+            logger.info(f"Found user: {user_name} (ID: {user_id}, Status: {user_status})")
+            
+            # Step 2: Clear all active sessions (CRITICAL for security)
+            logger.info(f"Step 2: Clearing all active sessions for {user_email}")
+            if self.clear_user_sessions(user_id):
+                actions_completed.append("All active sessions cleared")
+                logger.info("✅ All sessions cleared successfully")
+            else:
+                actions_failed.append("Failed to clear sessions")
+                logger.error("❌ Failed to clear sessions - SECURITY RISK!")
+            
+            # Step 3: Remove from all groups
+            logger.info(f"Step 3: Removing user from all groups")
+            group_result = self.remove_user_from_all_groups(user_id)
+            
+            if group_result['success']:
+                groups_removed = group_result['groups_removed']
+                if groups_removed > 0:
+                    actions_completed.append(f"Removed from {groups_removed} groups")
+                    logger.info(f"✅ Removed from {groups_removed} groups")
+                else:
+                    actions_completed.append("No groups to remove")
+                    logger.info("ℹ️ User was not in any removable groups")
+            else:
+                actions_failed.append("Failed to remove from groups")
+                logger.error("❌ Failed to remove from groups")
+            
+            # Step 4: Deactivate user (if not already deactivated)
+            if user_status not in ['DEPROVISIONED', 'SUSPENDED']:
+                logger.info(f"Step 4: Deactivating user account")
+                if self.deactivate_user(user_id):
+                    actions_completed.append("User account deactivated")
+                    logger.info("✅ User account deactivated")
+                else:
+                    actions_failed.append("Failed to deactivate user")
+                    logger.error("❌ Failed to deactivate user")
+            else:
+                actions_completed.append(f"User already inactive (Status: {user_status})")
+                logger.info(f"ℹ️ User already inactive (Status: {user_status})")
+            
+            # Determine overall success
+            critical_failures = [f for f in actions_failed if 'sessions' in f or 'deactivate' in f]
+            success = len(critical_failures) == 0
+            
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            
+            result = {
+                'success': success,
+                'user_email': user_email,
+                'user_name': user_name,
+                'user_id': user_id,
+                'original_status': user_status,
+                'actions_completed': actions_completed,
+                'actions_failed': actions_failed,
+                'warnings': warnings,
+                'duration_seconds': duration,
+                'start_time': start_time,
+                'end_time': end_time
+            }
+            
+            if success:
+                logger.info(f"✅ Okta termination completed successfully for {user_email} in {duration:.1f}s")
+            else:
+                logger.warning(f"⚠️ Okta termination completed with issues for {user_email} in {duration:.1f}s")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Fatal error during Okta termination for {user_email}: {e}")
+            
+            return {
+                'success': False,
+                'user_email': user_email,
+                'error': f"Fatal error: {str(e)}",
+                'actions_completed': actions_completed,
+                'actions_failed': actions_failed + [f"Fatal error: {str(e)}"],
+                'warnings': warnings,
+                'duration_seconds': (datetime.now() - start_time).total_seconds()
+            }
+    
+    def test_user_lookup(self, user_email: str) -> Dict:
+        """Test if user exists and connection is working."""
+        try:
+            user = self.get_user_by_email(user_email)
+            
+            if user:
+                return {
+                    'success': True,
+                    'user_exists': True,
+                    'user_id': user['id'],
+                    'user_status': user['status'],
+                    'user_name': user.get('profile', {}).get('displayName', user_email)
+                }
+            else:
+                return {
+                    'success': True,
+                    'user_exists': False,
+                    'message': 'User not found in Okta'
+                }
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'user_exists': False
+            }
 
 def validate_okta_connection(okta_token: str) -> bool:
     """

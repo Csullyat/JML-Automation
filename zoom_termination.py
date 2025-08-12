@@ -11,7 +11,7 @@ import jwt
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-from config import get_zoom_credentials
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +31,26 @@ class ZoomTerminationManager:
             # Use cached credentials or fetch from 1Password
             if ZoomTerminationManager._cached_credentials is None:
                 logger.info("Fetching Zoom credentials from 1Password (first time)")
-                zoom_creds = get_zoom_credentials()
+                zoom_creds_tuple = config.get_zoom_credentials()
+                # Convert tuple to expected dictionary format
+                zoom_creds = {
+                    'client_id': zoom_creds_tuple[0],
+                    'client_secret': zoom_creds_tuple[1], 
+                    'account_id': zoom_creds_tuple[2]
+                }
                 ZoomTerminationManager._cached_credentials = zoom_creds
                 logger.info("Zoom credentials cached for future use")
             else:
                 logger.info("Using cached Zoom credentials")
                 zoom_creds = ZoomTerminationManager._cached_credentials
             
-            self.api_key = zoom_creds['api_key']
-            self.api_secret = zoom_creds['api_secret']
+            # Map config field names to expected names
             self.account_id = zoom_creds['account_id']
+            self.client_id = zoom_creds['client_id']
+            self.client_secret = zoom_creds['client_secret']
+            # Legacy attribute names for backwards compatibility
+            self.api_key = zoom_creds['client_id']
+            self.api_secret = zoom_creds['client_secret']
             
             # Zoom API base URL
             self.base_url = "https://api.zoom.us/v2"
@@ -760,6 +770,118 @@ def test_zoom_termination():
             
     except Exception as e:
         print(f"Test error: {e}")
+
+# Wrapper class to match orchestrator expectations
+class ZoomTermination:
+    """Wrapper class for ZoomTerminationManager to match orchestrator interface."""
+    
+    def __init__(self):
+        """Initialize Zoom termination wrapper."""
+        self.manager = ZoomTerminationManager()
+    
+    def execute_complete_termination(self, user_email: str, manager_email: str = None) -> Dict:
+        """
+        Execute complete Zoom termination for a user.
+        
+        Args:
+            user_email: Email of user to terminate
+            manager_email: Email of manager for data transfer
+            
+        Returns:
+            Dict with termination results
+        """
+        logger.info(f"📹 Starting Zoom termination for {user_email}")
+        
+        start_time = datetime.now()
+        actions_completed = []
+        actions_failed = []
+        warnings = []
+        errors = []
+        
+        try:
+            # Use the existing manager's execute_complete_termination method
+            result = self.manager.execute_complete_termination(user_email, manager_email)
+            
+            # Convert boolean result to comprehensive dict
+            if isinstance(result, bool):
+                if result:
+                    actions_completed.append("Zoom user termination completed")
+                    success = True
+                else:
+                    actions_failed.append("Zoom user termination failed")
+                    errors.append("Termination returned False")
+                    success = False
+            else:
+                # If result is already a dict, use it
+                success = result.get('success', False)
+                actions_completed = result.get('actions_completed', [])
+                actions_failed = result.get('actions_failed', [])
+                errors = result.get('errors', [])
+                warnings = result.get('warnings', [])
+            
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            
+            final_result = {
+                'success': success,
+                'user_email': user_email,
+                'manager_email': manager_email,
+                'actions_completed': actions_completed,
+                'actions_failed': actions_failed,
+                'warnings': warnings,
+                'errors': errors,
+                'duration_seconds': duration,
+                'start_time': start_time,
+                'end_time': end_time
+            }
+            
+            if success:
+                logger.info(f"✅ Zoom termination completed successfully for {user_email} in {duration:.1f}s")
+            else:
+                logger.warning(f"⚠️ Zoom termination completed with issues for {user_email} in {duration:.1f}s")
+            
+            return final_result
+            
+        except Exception as e:
+            logger.error(f"❌ Fatal error during Zoom termination for {user_email}: {e}")
+            
+            return {
+                'success': False,
+                'user_email': user_email,
+                'error': f"Fatal error: {str(e)}",
+                'actions_completed': actions_completed,
+                'actions_failed': actions_failed + [f"Fatal error: {str(e)}"],
+                'warnings': warnings,
+                'errors': errors + [f"Fatal error: {str(e)}"],
+                'duration_seconds': (datetime.now() - start_time).total_seconds()
+            }
+    
+    def test_connectivity(self) -> Dict:
+        """Test Zoom API connectivity."""
+        try:
+            # Test with a simple API call via the manager
+            # Use the manager's test method if available, otherwise test token
+            if hasattr(self.manager, 'test_connection'):
+                return self.manager.test_connection()
+            else:
+                # Basic connectivity test
+                token = self.manager._get_cached_or_new_token()
+                if token:
+                    return {
+                        'success': True,
+                        'message': 'Zoom API token obtained successfully'
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': 'Failed to obtain Zoom API token'
+                    }
+                    
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"Zoom connectivity test failed: {str(e)}"
+            }
 
 if __name__ == "__main__":
     test_zoom_termination()
