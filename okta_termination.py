@@ -145,22 +145,18 @@ class OktaTermination:
         
         Args:
             user_email: Email address of user to terminate
-            
         Returns:
             Dict with termination results
         """
-        logger.info(f"🔒 Starting Okta termination for {user_email}")
-        
+        logger.info(f"Starting Okta termination for {user_email}")
         start_time = datetime.now()
         actions_completed = []
         actions_failed = []
         warnings = []
-        
         try:
             # Step 1: Find the user
             logger.info(f"Step 1: Looking up user {user_email}")
             user = self.get_user_by_email(user_email)
-            
             if not user:
                 return {
                     'success': False,
@@ -170,50 +166,33 @@ class OktaTermination:
                     'actions_failed': ['User lookup failed'],
                     'warnings': warnings
                 }
-            
             user_id = user['id']
             user_name = user.get('profile', {}).get('displayName', user_email)
             user_status = user['status']
-            
             logger.info(f"Found user: {user_name} (ID: {user_id}, Status: {user_status})")
-            
             # Step 2: Clear all active sessions (CRITICAL for security)
             logger.info(f"Step 2: Clearing all active sessions for {user_email}")
             if self.clear_user_sessions(user_id):
                 actions_completed.append("All active sessions cleared")
-                logger.info("✅ All sessions cleared successfully")
+                logger.info("All sessions cleared successfully")
             else:
                 actions_failed.append("Failed to clear sessions")
-                logger.error("❌ Failed to clear sessions - SECURITY RISK!")
+                logger.error("Failed to clear sessions - SECURITY RISK!")
             
-            # Step 3: Remove from all groups
-            logger.info(f"Step 3: Removing user from all groups")
-            group_result = self.remove_user_from_all_groups(user_id)
-            
-            if group_result['success']:
-                groups_removed = group_result['groups_removed']
-                if groups_removed > 0:
-                    actions_completed.append(f"Removed from {groups_removed} groups")
-                    logger.info(f"✅ Removed from {groups_removed} groups")
-                else:
-                    actions_completed.append("No groups to remove")
-                    logger.info("ℹ️ User was not in any removable groups")
-            else:
-                actions_failed.append("Failed to remove from groups")
-                logger.error("❌ Failed to remove from groups")
+            # Step 3: (No group removal in Okta termination phase)
             
             # Step 4: Deactivate user (if not already deactivated)
             if user_status not in ['DEPROVISIONED', 'SUSPENDED']:
                 logger.info(f"Step 4: Deactivating user account")
                 if self.deactivate_user(user_id):
                     actions_completed.append("User account deactivated")
-                    logger.info("✅ User account deactivated")
+                    logger.info("User account deactivated")
                 else:
                     actions_failed.append("Failed to deactivate user")
-                    logger.error("❌ Failed to deactivate user")
+                    logger.error("Failed to deactivate user")
             else:
                 actions_completed.append(f"User already inactive (Status: {user_status})")
-                logger.info(f"ℹ️ User already inactive (Status: {user_status})")
+                logger.info(f"User already inactive (Status: {user_status})")
             
             # Determine overall success
             critical_failures = [f for f in actions_failed if 'sessions' in f or 'deactivate' in f]
@@ -237,14 +216,14 @@ class OktaTermination:
             }
             
             if success:
-                logger.info(f"✅ Okta termination completed successfully for {user_email} in {duration:.1f}s")
+                logger.info(f"Okta termination completed successfully for {user_email} in {duration:.1f}s")
             else:
-                logger.warning(f"⚠️ Okta termination completed with issues for {user_email} in {duration:.1f}s")
+                logger.warning(f"Okta termination completed with issues for {user_email} in {duration:.1f}s")
             
             return result
             
         except Exception as e:
-            logger.error(f"❌ Fatal error during Okta termination for {user_email}: {e}")
+            logger.error(f"Fatal error during Okta termination for {user_email}: {e}")
             
             return {
                 'success': False,

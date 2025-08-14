@@ -24,6 +24,43 @@ class MicrosoftTermination:
         if not self.credentials.get('client_id'):
             raise Exception("Microsoft Graph credentials not available")
     
+    def get_mailbox_status(self, user_email: str) -> Optional[str]:
+        """Return the mailbox type (e.g., 'UserMailbox', 'SharedMailbox') for the given user."""
+        import subprocess
+        import os
+        ps_script = f'''
+try {{
+    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
+    Connect-ExchangeOnline -AppId '{self.credentials['client_id']}' -Organization 'filevine.com' -CertificateThumbprint 'DF8B5FA21923E56ABA0FC540CBC2056977999CF9' -ShowBanner:$false
+    $mailbox = Get-Mailbox -Identity '{user_email}' -ErrorAction Stop
+    Write-Host $mailbox.RecipientTypeDetails
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    exit 0
+}} catch {{
+    Write-Host "ERROR: $($_.Exception.Message)"
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    exit 1
+}}
+'''
+        script_path = os.path.join(os.getcwd(), "temp_get_mailbox_status.ps1")
+        with open(script_path, 'w', encoding='utf-8') as f:
+            f.write(ps_script)
+        cmd = [
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", script_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        try:
+            os.remove(script_path)
+        except:
+            pass
+        if result.returncode == 0 and result.stdout:
+            status = result.stdout.strip().splitlines()[-1]
+            return status
+        return None
+    
     def _get_access_token(self) -> str:
         """Get OAuth2 access token for Microsoft Graph with caching."""
         # Check if we have a valid cached token
@@ -133,7 +170,7 @@ class MicrosoftTermination:
             logger.error(f"Error finding manager {manager_email}: {e}")
             return None
     
-    def convert_mailbox_to_shared(self, user_email: str) -> bool:
+    def convert_mailbox_to_shared(self, user_email: str):
         """Convert user mailbox to shared mailbox using certificate-based authentication."""
         try:
             logger.info(f"Attempting automated mailbox conversion for {user_email}")
@@ -222,16 +259,21 @@ try {{
                 logger.info(f"PowerShell output: {result.stdout}")
             if result.stderr:
                 logger.warning(f"PowerShell errors: {result.stderr}")
-            
-            # Check for success based on exit code AND output content
-            if result.returncode == 0 and "SUCCESS: Mailbox successfully converted to SharedMailbox" in result.stdout:
+
+            # Check for 'already shared' warning FIRST, before any other success logic
+            if result.stdout:
+                logger.info(f"DEBUG: PowerShell stdout for mailbox conversion: {result.stdout}")
+            if result.stdout and "already of the type" in result.stdout:
+                logger.info(f"Mailbox {user_email} is already a shared mailbox. Skipping conversion.")
+                return "already_shared"
+            elif result.returncode == 0 and "SUCCESS: Mailbox successfully converted to SharedMailbox" in result.stdout:
                 logger.info(f"SUCCESS: Mailbox successfully converted to shared for {user_email}")
                 return True
             else:
                 logger.warning(f"Automated conversion failed (exit code {result.returncode})")
                 if "Connect-ExchangeOnline" in result.stderr and "not recognized" in result.stderr:
                     logger.error("Exchange Online PowerShell module commands not available in subprocess")
-                
+
                 # Fall back to manual instructions
                 logger.warning("=" * 60)
                 logger.warning("MANUAL ACTION REQUIRED: Mailbox conversion to shared type")
@@ -250,7 +292,7 @@ try {{
                 logger.warning("")
                 logger.warning("After conversion, the automation will continue with delegation and license removal.")
                 logger.warning("=" * 60)
-                
+
                 # Return False to indicate manual action needed
                 return False
             
@@ -483,7 +525,7 @@ try {{
     def delete_user_account(self, user_email: str) -> bool:
         """Delete Microsoft 365 user account completely."""
         try:
-            logger.info(f"🗑️ DELETING Microsoft 365 user account: {user_email}")
+            logger.info(f"DELETING Microsoft 365 user account: {user_email}")
             
             # Get user ID for deletion
             user = self.find_user_by_email(user_email)

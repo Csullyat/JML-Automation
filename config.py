@@ -2,6 +2,7 @@
 import subprocess
 import os
 import json
+import logging
 from google.oauth2 import service_account
 
 # Base URLs and constants
@@ -41,6 +42,15 @@ def get_secret_from_1password_service_account(resource_path: str) -> str:
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         print(f"Error accessing 1Password with service account: {e}")
+        raise
+
+def get_secret_from_1password(resource_path: str) -> str:
+    """Retrieve a secret using the regular 1Password CLI (not service account)."""
+    try:
+        result = subprocess.run(['op', 'read', resource_path], capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"Error accessing 1Password: {e}")
         raise
 
 # Core credential functions
@@ -145,6 +155,22 @@ def get_exchange_credentials() -> dict:
         'app_id': get_secret_from_1password_service_account("op://IT/microsoft-graph-api/username"),
         'client_secret': get_secret_from_1password_service_account("op://IT/microsoft-graph-api/password")
     }
+
+def get_google_service_account_key() -> dict:
+    """Get Google Workspace service account key from 1Password."""
+    try:
+        from config import get_secret_from_1password_service_account, get_secret_from_1password
+        # Try service account first, fallback to regular CLI
+        service_account_json = get_secret_from_1password_service_account("op://IT/google-workspace-service-account/credential")
+        return json.loads(service_account_json)
+    except Exception:
+        print("Service account failed, falling back to regular 1Password CLI")
+        try:
+            service_account_json = get_secret_from_1password("op://IT/google-workspace-service-account/credential")
+            return json.loads(service_account_json)
+        except Exception as e:
+            logging.error(f"Could not retrieve Google service account key: {e}")
+            return {}
 
 # Configuration validation functions for orchestrator
 def get_configuration_summary() -> dict:

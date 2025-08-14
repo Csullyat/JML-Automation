@@ -155,23 +155,19 @@ class GoogleTermination:
         Args:
             user_email: Email of user to terminate
             manager_email: Email of manager for data delegation
-            
         Returns:
             Dict with termination results
         """
-        logger.info(f"🌐 Starting Google Workspace termination for {user_email}")
-        
+        logger.info(f"Starting Google Workspace termination for {user_email}")
         start_time = datetime.now()
         actions_completed = []
         actions_failed = []
         warnings = []
         errors = []
-        
         try:
             # Step 1: Get user info
             logger.info(f"Step 1: Looking up user {user_email} in Google Workspace")
             user_info = self.get_user_info(user_email)
-            
             if not user_info:
                 return {
                     'success': False,
@@ -193,11 +189,11 @@ class GoogleTermination:
                 logger.info(f"Step 2: Delegating Gmail access to {manager_email}")
                 if self.delegate_gmail_access(user_email, manager_email):
                     actions_completed.append(f"Gmail delegated to {manager_email}")
-                    logger.info("✅ Gmail delegation created")
+                    logger.info("Gmail delegation created")
                 else:
                     actions_failed.append("Failed to delegate Gmail access")
                     errors.append("Gmail delegation failed")
-                    logger.error("❌ Gmail delegation failed")
+                    logger.error("Gmail delegation failed")
             else:
                 warnings.append("No manager provided - Gmail delegation skipped")
                 logger.warning("No manager provided for Gmail delegation")
@@ -209,11 +205,11 @@ class GoogleTermination:
                 
                 if drive_result['success']:
                     actions_completed.append("Drive data transfer initiated")
-                    logger.info("✅ Drive data transfer initiated")
+                    logger.info("Drive data transfer initiated")
                 else:
                     actions_failed.append("Failed to transfer Drive data")
                     errors.append(f"Drive transfer failed: {drive_result.get('error', 'Unknown error')}")
-                    logger.error("❌ Drive data transfer failed")
+                    logger.error("Drive data transfer failed")
             else:
                 warnings.append("No manager provided - Drive transfer skipped")
                 logger.warning("No manager provided for Drive transfer")
@@ -225,25 +221,25 @@ class GoogleTermination:
             if groups_result['success']:
                 groups_removed = groups_result['groups_removed']
                 actions_completed.append(f"Removed from {groups_removed} Google Groups")
-                logger.info(f"✅ Removed from {groups_removed} groups")
+                logger.info(f"Removed from {groups_removed} groups")
             else:
                 actions_failed.append("Failed to remove from Google Groups")
                 errors.append("Group removal failed")
-                logger.error("❌ Failed to remove from groups")
+                logger.error("Failed to remove from groups")
             
             # Step 5: Suspend user account
             if not is_suspended:
                 logger.info(f"Step 5: Suspending user account")
                 if self.suspend_user(user_email):
                     actions_completed.append("User account suspended")
-                    logger.info("✅ User account suspended")
+                    logger.info("User account suspended")
                 else:
                     actions_failed.append("Failed to suspend user")
                     errors.append("User suspension failed")
-                    logger.error("❌ Failed to suspend user")
+                    logger.error("Failed to suspend user")
             else:
                 actions_completed.append("User already suspended")
-                logger.info("ℹ️ User already suspended")
+                logger.info("User already suspended")
             
             # Determine success
             critical_failures = [f for f in actions_failed if 'suspend' in f.lower()]
@@ -267,14 +263,14 @@ class GoogleTermination:
             }
             
             if success:
-                logger.info(f"✅ Google Workspace termination completed successfully for {user_email} in {duration:.1f}s")
+                logger.info(f"Google Workspace termination completed successfully for {user_email} in {duration:.1f}s")
             else:
-                logger.warning(f"⚠️ Google Workspace termination completed with issues for {user_email} in {duration:.1f}s")
+                logger.warning(f"Google Workspace termination completed with issues for {user_email} in {duration:.1f}s")
             
             return result
             
         except Exception as e:
-            logger.error(f"❌ Fatal error during Google Workspace termination for {user_email}: {e}")
+            logger.error(f"Fatal error during Google Workspace termination for {user_email}: {e}")
             
             return {
                 'success': False,
@@ -316,3 +312,181 @@ class GoogleTermination:
                 'success': False,
                 'error': f"Connection failed: {str(e)}"
             }
+
+class GoogleTerminationManager:
+    """Handles Google Workspace user termination and data transfer."""
+    def __init__(self):
+        try:
+            from config import get_google_service_account_key
+            from google.oauth2 import service_account
+            from googleapiclient.discovery import build
+            # Get service account credentials from 1Password
+            service_account_info = get_google_service_account_key()
+            scopes = [
+                'https://www.googleapis.com/auth/admin.directory.user',
+                'https://www.googleapis.com/auth/admin.datatransfer'
+            ]
+            self.credentials = service_account.Credentials.from_service_account_info(
+                service_account_info, scopes=scopes
+            )
+            admin_email = "codyatkinson@filevine.com"  # Update as needed
+            self.delegated_credentials = self.credentials.with_subject(admin_email)
+            self.directory_service = build('admin', 'directory_v1', credentials=self.delegated_credentials)
+            self.datatransfer_service = build('admin', 'datatransfer_v1', credentials=self.delegated_credentials)
+            logger.info("Google Workspace API clients initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Google Workspace API clients: {e}")
+            raise
+
+    def find_user_by_email(self, email: str) -> Optional[Dict]:
+        try:
+            logger.info(f"Looking up Google Workspace user: {email}")
+            result = self.directory_service.users().get(userKey=email).execute()
+            logger.info(f"Found Google Workspace user: {result.get('name', {}).get('fullName')} ({email})")
+            return result
+        except HttpError as e:
+            if e.resp.status == 404:
+                logger.warning(f"Google Workspace user not found: {email}")
+                return None
+            else:
+                logger.error(f"Error finding Google Workspace user {email}: {e}")
+                raise
+        except Exception as e:
+            logger.error(f"Unexpected error finding Google Workspace user {email}: {e}")
+            raise
+
+    def find_manager_by_email(self, manager_email: str) -> Optional[Dict]:
+        try:
+            logger.info(f"Looking up manager for data transfer: {manager_email}")
+            manager = self.find_user_by_email(manager_email)
+            if manager:
+                logger.info(f"Found manager: {manager.get('name', {}).get('fullName')} ({manager_email})")
+                return manager
+            else:
+                logger.warning(f"Manager not found in Google Workspace: {manager_email}")
+                return None
+        except Exception as e:
+            logger.error(f"Error finding manager {manager_email}: {e}")
+            raise
+
+    def transfer_user_data(self, user_email: str, manager_email: str) -> bool:
+        try:
+            logger.info(f"Starting data transfer: {user_email} -> {manager_email}")
+            user = self.find_user_by_email(user_email)
+            manager = self.find_manager_by_email(manager_email)
+            if not user:
+                logger.error(f"Cannot transfer data: source user {user_email} not found")
+                return False
+            if not manager:
+                logger.error(f"Cannot transfer data: manager {manager_email} not found")
+                return False
+            applications = [
+                {'id': 55656082996, 'name': 'Drive and Docs'},
+                {'id': 435070579839, 'name': 'Gmail'}
+            ]
+            transfer_requests = []
+            for app in applications:
+                transfer_request = {
+                    'applicationId': app['id'],
+                    'applicationTransferParams': []
+                }
+                if app['id'] == 55656082996:
+                    transfer_request['applicationTransferParams'] = [
+                        {'key': 'PRIVACY_LEVEL', 'value': ['SHARED', 'PRIVATE']}
+                    ]
+                transfer_requests.append(transfer_request)
+            transfer_body = {
+                'oldOwnerUserId': user['id'],
+                'newOwnerUserId': manager['id'],
+                'applicationDataTransfers': transfer_requests
+            }
+            logger.info(f"Executing data transfer for {len(applications)} applications")
+            logger.info(f"Transfer from user ID: {user['id']} to manager ID: {manager['id']}")
+            result = self.datatransfer_service.transfers().insert(body=transfer_body).execute()
+            transfer_id = result.get('id')
+            logger.info(f"Data transfer initiated with ID: {transfer_id}")
+            return self._monitor_data_transfer(transfer_id, user_email, manager_email)
+        except Exception as e:
+            logger.error(f"Error transferring data from {user_email} to {manager_email}: {e}")
+            return False
+
+    def _monitor_data_transfer(self, transfer_id: str, user_email: str, manager_email: str, max_wait_time: int = 300) -> bool:
+        try:
+            logger.info(f"Monitoring data transfer {transfer_id} (max wait: {max_wait_time}s)")
+            import time
+            start_time = time.time()
+            poll_interval = 5
+            while time.time() - start_time < max_wait_time:
+                result = self.datatransfer_service.transfers().get(dataTransferId=transfer_id).execute()
+                overall_status = result.get('overallTransferStatusCode')
+                logger.info(f"Transfer status: {overall_status}")
+                if overall_status == 'completed':
+                    logger.info(f"Data transfer completed successfully: {user_email} -> {manager_email}")
+                    return True
+                elif overall_status == 'failed':
+                    logger.error(f"Data transfer failed: {user_email} -> {manager_email}")
+                    return False
+                elif overall_status in ['inProgress', 'pending']:
+                    elapsed = time.time() - start_time
+                    if elapsed > 60:
+                        poll_interval = 15
+                    elif elapsed > 30:
+                        poll_interval = 10
+                    logger.info(f"Data transfer in progress, waiting {poll_interval} seconds...")
+                    time.sleep(poll_interval)
+                else:
+                    logger.warning(f"Unknown transfer status: {overall_status}")
+                    time.sleep(poll_interval)
+            logger.warning(f"Data transfer monitoring timeout after {max_wait_time}s")
+            return False
+        except Exception as e:
+            logger.error(f"Error monitoring data transfer {transfer_id}: {e}")
+            return False
+
+    def delete_user(self, user_email: str) -> bool:
+        try:
+            logger.info(f"Deleting Google Workspace user: {user_email}")
+            user = self.find_user_by_email(user_email)
+            if not user:
+                logger.warning(f"User {user_email} not found, skipping deletion")
+                return True
+            self.directory_service.users().delete(userKey=user_email).execute()
+            logger.info(f"Successfully deleted Google Workspace user: {user_email}")
+            return True
+        except HttpError as e:
+            if e.resp.status == 404:
+                logger.warning(f"User {user_email} already deleted or not found")
+                return True
+            else:
+                logger.error(f"Error deleting Google Workspace user {user_email}: {e}")
+                return False
+        except Exception as e:
+            logger.error(f"Unexpected error deleting user {user_email}: {e}")
+            return False
+
+    def execute_complete_termination(self, user_email: str, manager_email: str) -> bool:
+        try:
+            logger.info(f"Starting Google Workspace termination for {user_email}")
+            user = self.find_user_by_email(user_email)
+            if not user:
+                logger.warning(f"User {user_email} not found in Google Workspace")
+                return True
+            if manager_email:
+                logger.info(f"Step 1: Transferring data to manager ({manager_email})")
+                transfer_success = self.transfer_user_data(user_email, manager_email)
+                if not transfer_success:
+                    logger.error(f"Data transfer failed for {user_email}, aborting deletion to preserve data")
+                    return False
+            else:
+                logger.warning(f"No manager specified for {user_email}, skipping data transfer")
+            logger.info(f"Step 2: Deleting user account")
+            deletion_success = self.delete_user(user_email)
+            if deletion_success:
+                logger.info(f"Google Workspace termination completed for {user_email}")
+                return True
+            else:
+                logger.error(f"User deletion failed for {user_email}")
+                return False
+        except Exception as e:
+            logger.error(f"Error in Google Workspace termination for {user_email}: {e}")
+            return False
