@@ -25,7 +25,8 @@ def run_microsoft_and_okta_group_cleanup_test():
         "Exchange Mailbox Conversion",
         "M365 Delegation",
         "M365 License Removal",
-        "Google Deprovision (and Okta Google group removal)"
+        "Google Deprovision",
+        "Zoom Deprovision"
     ]
     total_steps = len(steps)
     step = 1
@@ -47,6 +48,8 @@ def run_microsoft_and_okta_group_cleanup_test():
     okta_term = OktaTermination()
     okta_token = get_okta_token()
     google_term = GoogleTerminationManager()
+    from zoom_termination import ZoomTermination
+    zoom_term = ZoomTermination()
     for i, ticket in enumerate(filtered):
         user_email = extract_user_email_from_ticket(ticket)
         manager_email = extract_manager_email_from_ticket(ticket)
@@ -126,6 +129,29 @@ def run_microsoft_and_okta_group_cleanup_test():
                 google_groups = [g for g in user_groups if 'google' in g.get('profile', {}).get('name', '').lower()]
                 if google_groups:
                     for group in google_groups:
+                        group_id = group['id']
+                        group_name = group.get('profile', {}).get('name', '')
+                        remove_user_from_group(user_id, group_id, okta_token)
+        except Exception:
+            pass
+        # Step 7: Zoom Deprovision
+        step = 7
+        print_progress(step, total_steps, steps[step-1])
+        try:
+            zoom_result = zoom_term.execute_complete_termination(user_email, manager_email)
+            print_progress(step, total_steps, steps[step-1])
+        except Exception:
+            print_progress(step, total_steps, steps[step-1], "✖")
+        # After Zoom: Remove from Okta Zoom groups (only SSO-Zoom_Member_Basaic and SSO-Zoom_Member_Pro)
+        try:
+            okta_user = okta_term.get_user_by_email(user_email)
+            if okta_user:
+                user_id = okta_user['id']
+                user_groups = get_user_groups(user_id, okta_token)
+                zoom_group_names = ["SSO-Zoom_Member_Basaic", "SSO-Zoom_Member_Pro"]
+                zoom_groups = [g for g in user_groups if g.get('profile', {}).get('name', '') in zoom_group_names]
+                if zoom_groups:
+                    for group in zoom_groups:
                         group_id = group['id']
                         group_name = group.get('profile', {}).get('name', '')
                         remove_user_from_group(user_id, group_id, okta_token)
