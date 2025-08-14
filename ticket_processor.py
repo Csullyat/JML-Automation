@@ -1,10 +1,15 @@
 # ticket_processor.py - Bridge between enterprise orchestrator and termination extractor
 
 import logging
+import requests
 from typing import List, Dict, Optional
 from termination_extractor import fetch_tickets, filter_termination_users
+from config import get_okta_token, get_okta_domain
 
 logger = logging.getLogger(__name__)
+
+# Cache for Okta lookups to avoid repeated API calls
+_okta_lookup_cache = {}
 
 def fetch_termination_tickets() -> List[Dict]:
     """
@@ -13,20 +18,15 @@ def fetch_termination_tickets() -> List[Dict]:
     """
     try:
         logger.info("Fetching termination tickets from SolarWinds")
-        
-        # Use the existing fetch_tickets function
+        # Import here to avoid circular import
+        from termination_extractor import fetch_tickets, filter_termination_users
         all_tickets = fetch_tickets()
-        
         if not all_tickets:
             logger.info("No tickets found")
             return []
-        
-        # Use the existing filter function to get parsed termination users
         filtered_users = filter_termination_users(all_tickets)
-        
         logger.info(f"Found {len(filtered_users)} actionable termination tickets")
         return filtered_users
-        
     except Exception as e:
         logger.error(f"Failed to fetch termination tickets: {e}")
         return []
@@ -34,82 +34,110 @@ def fetch_termination_tickets() -> List[Dict]:
 def extract_user_email_from_ticket(ticket: Dict) -> Optional[str]:
     """
     Extract user email from a parsed termination ticket.
-    
-    Args:
-        ticket: Parsed ticket dict from termination_extractor
-        
-    Returns:
-        User email if found, None otherwise
+    Returns user email if found, None otherwise.
     """
     try:
-        # The termination_extractor stores employee ID in 'employee_to_terminate'
-        # This could be an email or employee ID
+        # Prefer custom_fields_values if present
+        custom_fields = ticket.get('custom_fields_values')
+        if custom_fields:
+            for field in custom_fields:
+                if field.get('name', '').strip().lower() == 'employee to terminate':
+                    user_obj = field.get('user')
+                    if user_obj and isinstance(user_obj, dict):
+                        email = user_obj.get('email')
+                        if email:
+                            return email.lower()
+                    value = field.get('value')
+                    if value and '@' in str(value):
+                        return str(value).lower()
+        # Fallback to legacy fields
         employee_to_terminate = ticket.get('employee_to_terminate', '').strip()
-        
+        logger.debug(f"Raw employee_to_terminate field: '{employee_to_terminate}'")
         if not employee_to_terminate:
             logger.warning(f"No employee_to_terminate found in ticket {ticket.get('ticket_number', 'unknown')}")
             return None
-        
-        # Check if it's already an email
         if '@' in employee_to_terminate:
-            logger.info(f"Found email in ticket: {employee_to_terminate}")
-            return employee_to_terminate
-        
-        # If it's not an email, we might need to look it up or convert it
-        # For now, assume it needs @filevine.com appended if it looks like a username
-        if employee_to_terminate and not '@' in employee_to_terminate:
-            # Check if it looks like a username (no spaces, alphanumeric)
-            if employee_to_terminate.replace('.', '').replace('_', '').replace('-', '').isalnum():
-                email = f"{employee_to_terminate}@filevine.com"
-                logger.info(f"Converted employee ID '{employee_to_terminate}' to email: {email}")
+            return employee_to_terminate.lower()
+        if employee_to_terminate.isdigit():
+            email = lookup_okta_email(employee_to_terminate)
+            if email:
                 return email
-        
-        logger.warning(f"Could not extract valid email from employee_to_terminate: '{employee_to_terminate}'")
+            logger.warning(f"Employee ID {employee_to_terminate} not found in Okta for ticket {ticket.get('ticket_number', 'unknown')}")
+            return None
+        if employee_to_terminate.isalnum() and not employee_to_terminate.isdigit():
+            email = f"{employee_to_terminate.lower()}@filevine.com"
+            logger.info(f"Converted username '{employee_to_terminate}' to email '{email}'")
+            return email
+        logger.warning(f"Unrecognized employee_to_terminate format: '{employee_to_terminate}' in ticket {ticket.get('ticket_number', 'unknown')}")
         return None
-        
     except Exception as e:
         logger.error(f"Error extracting user email from ticket: {e}")
         return None
 
+
 def extract_manager_email_from_ticket(ticket: Dict) -> Optional[str]:
     """
     Extract manager email from a parsed termination ticket.
-    
-    Args:
-        ticket: Parsed ticket dict from termination_extractor
-        
-    Returns:
-        Manager email if found, None otherwise
+    Returns manager email if found, None otherwise.
     """
     try:
-        # Look for manager information in various fields
-        # Check transfer_data field first (common place for manager info)
+        # Prefer custom_fields_values if present
+        custom_fields = ticket.get('custom_fields_values')
+        if custom_fields:
+            for field in custom_fields:
+                if field.get('name', '').strip().lower() == 'transfer data':
+                    user_obj = field.get('user')
+                    if user_obj and isinstance(user_obj, dict):
+                        email = user_obj.get('email')
+                        if email:
+                            return email.lower()
+                    value = field.get('value')
+                    if value and '@' in str(value):
+                        return str(value).lower()
+        # Fallback to legacy fields
         transfer_data = ticket.get('transfer_data', '').strip()
-        
-        if transfer_data and '@' in transfer_data:
-            # Extract email from transfer_data
-            words = transfer_data.split()
-            for word in words:
-                if '@' in word and 'filevine.com' in word:
-                    logger.info(f"Found manager email in transfer_data: {word}")
-                    return word.strip('.,;:')
-        
-        # Check additional_info field
+        logger.debug(f"Raw transfer_data field: '{transfer_data}'")
+        if transfer_data:
+            if '@' in transfer_data:
+                return transfer_data.lower()
+            if transfer_data.isdigit():
+                email = lookup_okta_email(transfer_data)
+                if email:
+                    return email
+                logger.warning(f"Manager ID {transfer_data} not found in Okta for ticket {ticket.get('ticket_number', 'unknown')}")
+            elif transfer_data.isalnum():
+                email = f"{transfer_data.lower()}@filevine.com"
+                logger.info(f"Converted manager username '{transfer_data}' to email '{email}'")
+                return email
         additional_info = ticket.get('additional_info', '').strip()
+        logger.debug(f"Raw additional_info field: '{additional_info}'")
         if additional_info and '@' in additional_info:
-            words = additional_info.split()
-            for word in words:
-                if '@' in word and 'filevine.com' in word:
-                    logger.info(f"Found manager email in additional_info: {word}")
-                    return word.strip('.,;:')
-        
-        # Could also check for manager name and try to convert to email
-        # For now, return None if no email found
-        logger.info(f"No manager email found in ticket {ticket.get('ticket_number', 'unknown')}")
+            return additional_info.lower()
+        logger.warning(f"No manager email found in ticket {ticket.get('ticket_number', 'unknown')}")
         return None
-        
     except Exception as e:
         logger.error(f"Error extracting manager email from ticket: {e}")
+        return None
+
+
+def lookup_okta_email(employee_id: str) -> Optional[str]:
+    """
+    Lookup user email in Okta by employee ID, with caching.
+    """
+    if not employee_id:
+        return None
+    if employee_id in _okta_lookup_cache:
+        return _okta_lookup_cache[employee_id]
+    try:
+        # Import here to avoid circular import
+        from okta_termination import OktaTermination
+        okta = OktaTermination()
+        email = okta.lookup_email_by_employee_id(employee_id)
+        if email:
+            _okta_lookup_cache[employee_id] = email
+        return email
+    except Exception as e:
+        logger.error(f"Okta lookup failed for employee_id {employee_id}: {e}")
         return None
 
 def update_ticket_status(ticket_id: str, status: str, notes: str = "") -> bool:

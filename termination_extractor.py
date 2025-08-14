@@ -1,3 +1,5 @@
+# Import robust email extraction functions for use by deprovisioning modules
+
 # termination_extractor.py - Extract termination tickets from SolarWinds
 
 import requests
