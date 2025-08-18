@@ -2,6 +2,9 @@
 
 import sys
 import time
+import argparse
+import cProfile
+import pstats
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from microsoft_termination import MicrosoftTermination
 from okta_termination import OktaTermination, get_user_groups, remove_user_from_group
@@ -131,6 +134,11 @@ def process_user(ticket, steps, total_steps, ms_term, okta_term, okta_token, goo
 import time
 
 def run_microsoft_and_okta_group_cleanup_test():
+    parser = argparse.ArgumentParser(description="Run Microsoft/Okta group cleanup test.")
+    parser.add_argument('--max-workers', type=int, default=32, help='Number of parallel worker threads')
+    parser.add_argument('--profile', action='store_true', help='Enable profiling')
+    args, unknown = parser.parse_known_args()
+
     start_time = time.time()
     steps = [
         "Pulling ticket data",
@@ -164,13 +172,37 @@ def run_microsoft_and_okta_group_cleanup_test():
     from zoom_termination import ZoomTermination
     zoom_term = ZoomTermination()
     # Parallel processing for users
-    with ThreadPoolExecutor(max_workers=32) as executor:
-        futures = [executor.submit(process_user, ticket, steps, total_steps, ms_term, okta_term, okta_token, google_term, zoom_term) for ticket in filtered]
-        for future in as_completed(futures):
-            pass
+    error_list = []
+    def user_wrapper(ticket):
+        try:
+            process_user(ticket, steps, total_steps, ms_term, okta_term, okta_token, google_term, zoom_term)
+        except Exception as e:
+            error_list.append((ticket.get('id'), str(e)))
+
+    def run_parallel():
+        with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
+            futures = [executor.submit(user_wrapper, ticket) for ticket in filtered]
+            for future in as_completed(futures):
+                pass
+
+    if args.profile:
+        profiler = cProfile.Profile()
+        profiler.enable()
+        run_parallel()
+        profiler.disable()
+        stats = pstats.Stats(profiler).sort_stats('cumtime')
+        stats.print_stats(20)
+    else:
+        run_parallel()
     end_time = time.time()
     elapsed = end_time - start_time
     print(f"\nTotal runtime: {elapsed:.2f} seconds ({elapsed/60:.2f} minutes)")
+    if error_list:
+        print(f"\nERROR SUMMARY: {len(error_list)} errors encountered.")
+        for tid, err in error_list[:10]:
+            print(f"Ticket {tid}: {err}")
+        if len(error_list) > 10:
+            print(f"...and {len(error_list)-10} more.")
 
 if __name__ == "__main__":
     run_microsoft_and_okta_group_cleanup_test()

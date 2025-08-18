@@ -1,3 +1,25 @@
+# Additional ignores for completeness
+.env.*
+*.bak
+*.tmp
+*.swp
+*.cer
+*.pfx
+*.crt
+Desktop.ini
+logs/
+*.log
+htmlcov/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+MANIFEST
+*.DS_Store
+Thumbs.db
+*.ipynb_checkpoints/
 # Python
 __pycache__/
 *.py[cod]

@@ -3,6 +3,7 @@
 # termination_extractor.py - Extract termination tickets from SolarWinds
 
 import requests
+import time
 import logging
 from typing import List, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -43,27 +44,48 @@ def fetch_page(page: int, per_page: int) -> List[Dict]:
     }
 
     logger.debug(f"Fetching page {page}...")
-    resp = requests.get(f"{SAMANAGE_BASE_URL}/incidents.json", headers=get_headers(), params=params)
-
-    if resp.status_code != 200:
-        print(f"Error on page {page}: {resp.status_code}: {resp.text}")
-        return []
-
-    return resp.json()
+    retries = 0
+    while retries < 5:
+        try:
+            resp = requests.get(f"{SAMANAGE_BASE_URL}/incidents.json", headers=get_headers(), params=params)
+            if resp.status_code == 429:
+                # Rate limit hit, exponential backoff
+                wait = 2 ** retries
+                print(f"Rate limit hit on page {page}, retrying in {wait}s...")
+                time.sleep(wait)
+                retries += 1
+                continue
+            if resp.status_code != 200:
+                print(f"Error on page {page}: {resp.status_code}: {resp.text}")
+                return []
+            return resp.json()
+        except Exception as e:
+            print(f"Request error on page {page}: {e}")
+            retries += 1
+            time.sleep(2 ** retries)
+    print(f"Failed to fetch page {page} after {retries} retries.")
+    return []
 
 def fetch_tickets(per_page: int = 100, max_pages: int = 60, workers: int = 15) -> List[Dict]:
     """Fetch all termination tickets using concurrent requests."""
     all_tickets = []
+    seen_ids = set()
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(fetch_page, page, per_page) for page in range(1, max_pages + 1)]
+        futures = {executor.submit(fetch_page, page, per_page): page for page in range(1, max_pages + 1)}
         for future in as_completed(futures):
+            page = futures[future]
             try:
                 incidents = future.result()
-                all_tickets.extend(incidents)
-                if not incidents:  # Stop if we get empty pages
-                    break
+                if not incidents:
+                    continue
+                # Batch support: avoid duplicate tickets if API returns overlapping data
+                for inc in incidents:
+                    inc_id = inc.get('id')
+                    if inc_id and inc_id not in seen_ids:
+                        all_tickets.append(inc)
+                        seen_ids.add(inc_id)
             except Exception as e:
-                print(f"Thread error: {e}")
+                print(f"Thread error on page {page}: {e}")
 
     print(f"Total termination tickets fetched: {len(all_tickets)}")
     return all_tickets
