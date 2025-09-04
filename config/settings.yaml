@@ -1,15 +1,11 @@
-# config/settings.yaml 
-
+# config/settings.yaml
 
 urls:
   okta: https://filevine.okta.com
   solarwinds: https://api.samanage.com
+
 okta:
   domain: filevine.okta.com
-
-solarwinds:
-  subdomain: it
-  base_url: https://api.samanage.com
 
 google:
   domain: filevine.com
@@ -19,10 +15,22 @@ onepassword:
   paths:
     okta_token: "op://IT/okta-api-token/password"
     solarwinds_token: "op://IT/samanage-api-token/password"
+    samanage_token: "op://IT/samanage-api-token/password"
     slack_token: "op://IT/slack-bot-token/password"
+    microsoft_tenant_id: "op://IT/microsoft-graph-api/tenant_id"
+    microsoft_client_id: "op://IT/microsoft-graph-api/username"
+    microsoft_client_secret: "op://IT/microsoft-graph-api/password"
+    exchange_tenant_id: "op://IT/Exchange Online Automation/tenant_id"
+    exchange_app_id: "op://IT/Exchange Online Automation/app_id"
+    exchange_cert_thumbprint: "op://IT/Exchange Online Automation/certificate_thumbprint"
+    google_service_account: "op://IT/google-workspace-service-account/credential"
+    zoom_api_key: "op://IT/Zoom_API_Key/password"
+    zoom_api_secret: "op://IT/Zoom_API_Secret/password"
+    zoom_account_id: "op://IT/Zoom_Account_ID/password"
 
 solarwinds:
-  base_url: "https://api.samanage.com"  # Single source of truth
+  base_url: "https://api.samanage.com"
+  subdomain: it
   catalog_item_id: 1198997
   state_ids:
     - 827236
