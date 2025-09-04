@@ -1,0 +1,73 @@
+# config/departments.yaml
+department_mappings:
+  Customer Success:
+    group_id: "00gjko740uOYdkXeg297"
+    aliases: ["CS - Customer Success"]
+  
+  Administrative:
+    group_id: "00g3ce14wy0gGcPIS297"
+    aliases: []
+  
+  Account Executives:
+    group_id: "00go8fzoo1PO3lxwg297"
+    aliases: ["AE - Account Executives"]
+  
+  Implementations:
+    group_id: "00g2s7ry9mxGh8iqV297"
+    aliases: []
+  
+  IT:
+    group_id: "00gc65d5gq80uNUP4297"
+    aliases: []
+  
+  HR:
+    group_id: "00gcyl7xpgYunw19j297"
+    aliases: []
+  
+  Finance:
+    group_id: "00g3ce14xoNHNA0ES297"
+    aliases: []
+  
+  Security:
+    group_id: "00g3cdi0iyC0ZuGnz297"
+    aliases: []
+  
+  Chat Support:
+    group_id: "00ginuyrp8icRLDsb297"
+    aliases: []
+  
+  Legal:
+    group_id: "00gcyl6onnkr96V2Q297"
+    aliases: []
+  
+  Product:
+    group_id: "00gcyl55dmthxitGA297"
+    aliases: []
+  
+  Account Manager:
+    group_id: "00go8g2gfrUivfyTg297"
+    aliases: []
+  
+  Sales Operations:
+    group_id: "00g3mhroi4GlBZHkv297"
+    aliases: []
+  
+  Research & Development:
+    group_id: "00g9dig6h44pNmIuE297"
+    aliases: ["R&D"]
+  
+  SDR - Sales Development Reps:
+    group_id: "00g3mhroi4GlBZHkv297"
+    aliases: ["SDR"]
+  
+  Marketing:
+    group_id: "00g2s7ry9wXTAR4k0297"
+    aliases: []
+
+# Special cases that override the above
+special_assignments:
+  # These departments get assigned to a different group than listed above
+  "SDR - Sales Development Reps": "00gc4fuf3wQXRIzqN297"  # Sales group
+  "AE - Account Executives": "00gc4fuf3wQXRIzqN297"      # Sales group
+
+default_group: "00g2j9c9gbRpqOjIm297"  # All Employees group

@@ -1,0 +1,46 @@
+# config/settings.yaml 
+
+
+urls:
+  okta: https://filevine.okta.com
+  solarwinds: https://api.samanage.com
+okta:
+  domain: filevine.okta.com
+
+solarwinds:
+  subdomain: it
+  base_url: https://api.samanage.com
+
+google:
+  domain: filevine.com
+  admin_email: admin@filevine.com
+
+onepassword:
+  paths:
+    okta_token: "op://IT/okta-api-token/password"
+    solarwinds_token: "op://IT/samanage-api-token/password"
+    slack_token: "op://IT/slack-bot-token/password"
+
+solarwinds:
+  base_url: "https://api.samanage.com"  # Single source of truth
+  catalog_item_id: 1198997
+  state_ids:
+    - 827236
+    - 827237
+    - 827238
+    - 827239
+    - 827240
+    - 868561
+    - 912210
+    - 918367
+    - 925284
+    - 1214303
+    - 1303729
+    - 1388495
+  active_states:
+    - "New"
+    - "Assigned" 
+    - "Auto-Assigned"
+  max_pages: 40
+  per_page: 100
+  max_workers: 30

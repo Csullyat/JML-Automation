@@ -1,0 +1,12 @@
+baseline:
+  - "Filevine Employees"
+dept:
+  Support:
+    - "Dept-Support"
+  Sales:
+    - "Dept-Sales"
+  "Research & Development":
+    - "Development"  # Okta group ID: 00g9dig6h44pNmIuE297
+zoom:
+  ae: "SSO-Zoom_Member_Pro"
+  default: "SSO-Zoom_Member_Basic"

@@ -1,0 +1,39 @@
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jml-automation"
+version = "0.1.0"
+description = "Join–Move–Leave automation for onboarding & termination"
+requires-python = ">=3.11"
+dependencies = [
+	"pydantic>=2",
+	"pydantic-settings>=2",
+	"httpx>=0.27",
+	"tenacity>=8",
+	"click>=8.1.0",
+	"pyyaml>=6",
+	"requests>=2.31",
+	"urllib3>=2.0.0",
+	"msal>=1.24.0",
+	"google-api-python-client>=2.100.0",
+	"google-auth>=2.22.0",
+	"google-auth-oauthlib>=1.0.0",
+	"google-auth-httplib2>=0.1.0",
+	"python-dateutil>=2.8.2",
+	"colorlog>=6.7.0",
+	"python-dotenv>=1.0.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[project.scripts]
+jml = "jml_automation.cli.app:cli"
+jml-onboard = "jml_automation.cli.app:onboard"
+jml-terminate = "jml_automation.cli.app:terminate"

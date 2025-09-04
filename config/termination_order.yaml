@@ -1,0 +1,29 @@
+# Based on your termination procedure document
+termination:
+  service_order:
+    - okta          # MUST be first - clear sessions
+    - microsoft     # Convert mailbox, remove licenses  
+    - google        # Transfer data, delete user
+    - zoom          # Transfer data, delete
+    - domo          # Delete person
+    - lucid         # Delete, transfer docs
+    - adobe         # Remove products
+    - workato       # Remove collaborator
+  
+  okta_groups_to_remove:
+    microsoft:
+      - "SSO-Microsoft 365 E3 - User"
+    google:
+      - "SSO-G Suite_EnterpriseUsers"
+    zoom:
+      - "SSO-Zoom_Member_Basic"
+      - "SSO_Zoom_Member_Pro"
+      - "SSO-Zoom_Member_Pro_Phone"
+    domo:
+      - "SSO-Domo"
+    lucid:
+      - "SSO-LucidChart"
+    adobe:
+      - "SSO-Adobe"
+    workato:
+      - "SSO-Workato"
