@@ -106,32 +106,37 @@ class SingleAppTerminator:
             "errors": []
         }
         
-        # Step 3a: Data transfer (if transfer email provided or can be determined)
-        if not transfer_email:
-            # For applications that need manager email, try to extract from ticket
-            from jml_automation.parsers.solarwinds_parser import extract_manager_email_from_ticket
-            manager_email = extract_manager_email_from_ticket(dict(raw_ticket))
-            if manager_email:
-                transfer_email = manager_email
-                result["transfer_email"] = transfer_email
-                logger.info(f"Using manager email as transfer target: {manager_email}")
-            else:
-                # Fallback to Okta lookup for apps that support it
-                if app_name in ["microsoft", "google"]:
-                    manager_email = self._get_manager_email(user_email)
-                    if manager_email:
-                        transfer_email = manager_email
-                        result["transfer_email"] = transfer_email
-                        logger.info(f"Using manager email from Okta as transfer target: {manager_email}")
+        # Step 3a: Data transfer (only for apps that have transferable data)
+        apps_with_data_transfer = ["microsoft", "google", "zoom"]
         
-        if transfer_email:
-            transfer_result = self._transfer_data(app_name, user_email, transfer_email, dry_run)
-            result["actions"].append(f"Data transfer: {transfer_result}")
+        if app_name in apps_with_data_transfer:
+            if not transfer_email:
+                # For applications that need manager email, try to extract from ticket
+                from jml_automation.parsers.solarwinds_parser import extract_manager_email_from_ticket
+                manager_email = extract_manager_email_from_ticket(dict(raw_ticket))
+                if manager_email:
+                    transfer_email = manager_email
+                    result["transfer_email"] = transfer_email
+                    logger.info(f"Using manager email as transfer target: {manager_email}")
+                else:
+                    # Fallback to Okta lookup for apps that support it
+                    if app_name in ["microsoft", "google"]:
+                        manager_email = self._get_manager_email(user_email)
+                        if manager_email:
+                            transfer_email = manager_email
+                            result["transfer_email"] = transfer_email
+                            logger.info(f"Using manager email from Okta as transfer target: {manager_email}")
+        
+            if transfer_email:
+                transfer_result = self._transfer_data(app_name, user_email, transfer_email, dry_run)
+                result["actions"].append(f"Data transfer: {transfer_result}")
+            else:
+                result["actions"].append("Data transfer: Skipped (no transfer email)")
         else:
-            result["actions"].append("Data transfer: Skipped (no transfer email)")
+            result["actions"].append(f"Data transfer: Not applicable for {app_name}")
             
         # Step 3b: Delete user from application
-        delete_result = self._delete_from_app(app_name, user_email, transfer_email, dry_run)
+        delete_result = self._delete_from_app(app_name, user_email, transfer_email, user_id, dry_run)
         result["actions"].append(f"User deletion: {delete_result}")
         
         # Step 3c: Remove from app-specific Okta groups
@@ -180,11 +185,21 @@ class SingleAppTerminator:
         else:
             return f"Data transfer not implemented for {app_name}"
     
-    def _delete_from_app(self, app_name: str, user_email: str, transfer_email: Optional[str], dry_run: bool) -> str:
+    def _delete_from_app(self, app_name: str, user_email: str, transfer_email: Optional[str], user_id: str, dry_run: bool) -> str:
         """Delete user from the specific application."""
         if dry_run:
             if app_name == "microsoft":
                 return f"Would execute Microsoft termination: convert {user_email} mailbox to shared, add delegate access, remove M365 license"
+            elif app_name == "domo":
+                # Check if user is in Domo groups for dry run
+                domo_groups = self.app_group_mapping.get(app_name, [])
+                if domo_groups:
+                    user_domo_groups = self.okta.get_user_groups_by_names(user_id, domo_groups)
+                    if user_domo_groups:
+                        return f"Would execute Domo termination: user in groups {', '.join(user_domo_groups)}, would delete from Domo"
+                    else:
+                        return "Would skip Domo termination: user not in Domo groups"
+                return "Would check Domo groups and conditionally terminate"
             else:
                 return f"Would delete user {user_email} from {app_name}"
             
@@ -302,6 +317,45 @@ class SingleAppTerminator:
                 
             except Exception as e:
                 return f"ERROR: Zoom termination failed: {e}"
+        elif app_name == "domo":
+            # CONDITIONAL TERMINATION: Only process if user is in Domo group
+            try:
+                # Step 1: Check if user is in Domo Okta group
+                domo_groups = self.app_group_mapping.get(app_name, [])
+                if not domo_groups:
+                    return "No Domo groups configured"
+                
+                # Check which Domo groups user is actually in
+                user_domo_groups = self.okta.get_user_groups_by_names(user_id, domo_groups)
+                
+                if not user_domo_groups:
+                    return "✅ User not in Domo groups, skipping termination"
+                
+                results = []
+                results.append(f"🔍 User found in groups: {', '.join(user_domo_groups)}")
+                
+                # Step 2: Delete from Domo (if user was in groups)
+                try:
+                    from jml_automation.services.domo import DomoService
+                    domo_service = DomoService()
+                    termination_result = domo_service.execute_termination(user_email)
+                    
+                    if termination_result.get("success"):
+                        verified = termination_result.get("verified", False)
+                        if verified:
+                            results.append("✅ User deleted from Domo and verified")
+                        else:
+                            results.append("⚠️ User deleted from Domo but verification failed")
+                    else:
+                        results.append(f"❌ Domo deletion failed: {termination_result.get('message', 'Unknown error')}")
+                        
+                except Exception as e:
+                    results.append(f"❌ Domo deletion failed: {e}")
+                
+                return "; ".join(results)
+                
+            except Exception as e:
+                return f"ERROR: Domo conditional termination failed: {e}"
         else:
             return f"User deletion not implemented for {app_name}"
     

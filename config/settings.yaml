@@ -27,6 +27,8 @@ onepassword:
     zoom_api_key: "op://IT/Zoom_API_Key/password"
     zoom_api_secret: "op://IT/Zoom_API_Secret/password"
     zoom_account_id: "op://IT/Zoom_Account_ID/password"
+    domo_client_id: "op://IT/domo-api/Domo Client ID"
+    domo_client_secret: "op://IT/domo-api/Domo Client Secret"
 
 solarwinds:
   base_url: "https://api.samanage.com"

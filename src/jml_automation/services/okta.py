@@ -283,6 +283,28 @@ class OktaService:
         resp = self._get(f"/api/v1/users/{user_id}/groups")
         return resp.json()
 
+    def is_user_in_group(self, user_id: str, group_name: str) -> bool:
+        """Check if a user is in a specific group by group name."""
+        try:
+            user_groups = self.get_user_groups(user_id)
+            for group in user_groups:
+                if group.get('profile', {}).get('name') == group_name:
+                    return True
+            return False
+        except Exception as e:
+            log.error(f"Error checking if user {user_id} is in group {group_name}: {e}")
+            return False
+
+    def get_user_groups_by_names(self, user_id: str, group_names: list[str]) -> list[str]:
+        """Get which groups from a list the user is actually in."""
+        try:
+            user_groups = self.get_user_groups(user_id)
+            user_group_names = [group.get('profile', {}).get('name') for group in user_groups]
+            return [name for name in group_names if name in user_group_names]
+        except Exception as e:
+            log.error(f"Error getting user groups for {user_id}: {e}")
+            return []
+
     # ---- Employee ID Lookup (Enhanced from ticket_processor.py) --------------
 
     def lookup_email_by_employee_id(self, employee_id: str) -> Optional[str]:
