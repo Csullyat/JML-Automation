@@ -317,11 +317,15 @@ class GoogleTerminationManager:
     """Handles Google Workspace user termination and data transfer."""
     def __init__(self):
         try:
-            from config import get_google_service_account_key
+            from jml_automation.config import Config
             from google.oauth2 import service_account
             from googleapiclient.discovery import build
+            
+            # Get configuration
+            config = Config()
+            
             # Get service account credentials from 1Password
-            service_account_info = get_google_service_account_key()
+            service_account_info = config.get_google_service_account_key()
             scopes = [
                 'https://www.googleapis.com/auth/admin.directory.user',
                 'https://www.googleapis.com/auth/admin.datatransfer'

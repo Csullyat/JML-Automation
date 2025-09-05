@@ -37,8 +37,8 @@ def _plan_from_ticket(ticket: OnboardingTicket) -> list[str]:
         "Okta: add baseline groups (Filevine Employees, dept groups, Zoom basic/pro)",
         "M365/Google: provision mailbox/license per mappings",
         "Zoom: assign license (AE → Pro if applicable)",
-        "Domo/Lucid/Adobe/Workato: provision as needed",
-        "Assets: record laptop style / create inventory (Kandji/Intune as needed)",
+    # "Domo/Lucid/Adobe/Workato: provision as needed",
+    # "Assets: record laptop style / create inventory (Kandji/Intune as needed)",
     ]
     return steps
 

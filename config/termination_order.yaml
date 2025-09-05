@@ -14,10 +14,10 @@ termination:
     microsoft:
       - "SSO-Microsoft 365 E3 - User"
     google:
-      - "SSO-G Suite_EnterpriseUsers"
+      - "SSO-Google_Workspace_EnterpriseUsers"
     zoom:
       - "SSO-Zoom_Member_Basic"
-      - "SSO_Zoom_Member_Pro"
+      - "SSO-Zoom_Member_Pro"
       - "SSO-Zoom_Member_Pro_Phone"
     domo:
       - "SSO-Domo"

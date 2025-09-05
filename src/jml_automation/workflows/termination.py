@@ -241,6 +241,90 @@ class TerminationWorkflow:
                 'duration_seconds': (datetime.now() - start_time).total_seconds()
             }
 
+    def remove_from_app_specific_groups(
+        self,
+        user_email: str,
+        app_name: str,
+        user_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Remove user from app-specific Okta groups instead of all groups.
+        
+        Args:
+            user_email: Email address of user
+            app_name: Application name (microsoft, google, zoom, etc.)
+            user_id: Optional Okta user ID (will lookup if not provided)
+            
+        Returns:
+            Dict with removal results
+        """
+        from jml_automation.utils.yaml_loader import load_yaml
+        
+        logger.info(f"Removing {user_email} from {app_name}-specific Okta groups")
+        
+        try:
+            # Load app-specific group mapping
+            termination_config = load_yaml("config/termination_order.yaml")
+            app_groups = termination_config.get("termination", {}).get("okta_groups_to_remove", {}).get(app_name, [])
+            
+            if not app_groups:
+                logger.warning(f"No Okta groups configured for {app_name}")
+                return {
+                    'success': True,
+                    'groups_removed': 0,
+                    'groups_failed': 0,
+                    'message': f'No groups configured for {app_name}'
+                }
+            
+            # Get user ID if not provided
+            if not user_id:
+                user = self.okta.get_user_by_email(user_email)
+                if not user:
+                    return {
+                        'success': False,
+                        'error': f'User {user_email} not found in Okta'
+                    }
+                user_id = user.get("id")
+                if not user_id:
+                    return {
+                        'success': False,
+                        'error': f'No user ID found for {user_email}'
+                    }
+            
+            # Remove from each app-specific group
+            removed_groups = []
+            failed_groups = []
+            
+            for group_name in app_groups:
+                try:
+                    group_id = self.okta.find_group_id(group_name)
+                    if group_id:
+                        self.okta.remove_from_groups(user_id, [group_id])
+                        removed_groups.append(group_name)
+                        logger.info(f"Removed from group: {group_name}")
+                    else:
+                        failed_groups.append(f"{group_name} (not found)")
+                        logger.warning(f"Group not found: {group_name}")
+                except Exception as e:
+                    failed_groups.append(f"{group_name} (error: {e})")
+                    logger.error(f"Failed to remove from group {group_name}: {e}")
+            
+            return {
+                'success': len(failed_groups) == 0,
+                'groups_removed': len(removed_groups),
+                'groups_failed': len(failed_groups),
+                'removed_groups': removed_groups,
+                'failed_groups': failed_groups,
+                'message': f'Removed from {len(removed_groups)} {app_name} groups'
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to remove from {app_name} groups: {e}")
+            return {
+                'success': False,
+                'error': f'Failed to remove from {app_name} groups: {e}'
+            }
+
     # ========== Multi-Phase Enterprise Termination ==========
     
     def execute_multi_phase_termination(

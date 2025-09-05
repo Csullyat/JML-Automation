@@ -31,7 +31,9 @@ class ZoomTerminationManager:
             # Use cached credentials or fetch from 1Password
             if ZoomTerminationManager._cached_credentials is None:
                 logger.info("Fetching Zoom credentials from 1Password (first time)")
-                zoom_creds_tuple = config.get_zoom_credentials()
+                from jml_automation.config import Config
+                config_instance = Config()
+                zoom_creds_tuple = config_instance.get_zoom_credentials()
                 # Convert tuple to expected dictionary format
                 zoom_creds = {
                     'client_id': zoom_creds_tuple[0],
