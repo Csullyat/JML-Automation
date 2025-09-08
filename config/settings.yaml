@@ -3,6 +3,7 @@
 urls:
   okta: https://filevine.okta.com
   solarwinds: https://api.samanage.com
+  lucidchart: https://users.lucid.app/scim/v2
 
 okta:
   domain: filevine.okta.com
@@ -29,6 +30,7 @@ onepassword:
     zoom_account_id: "op://IT/Zoom_Account_ID/password"
     domo_client_id: "op://IT/domo-api/Domo Client ID"
     domo_client_secret: "op://IT/domo-api/Domo Client Secret"
+    lucid_bearer_token: "op://IT/lucid_bearer_token/password"
 
 solarwinds:
   base_url: "https://api.samanage.com"

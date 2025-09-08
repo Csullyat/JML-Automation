@@ -22,7 +22,8 @@ termination:
     domo:
       - "SSO-Domo"
     lucid:
-      - "SSO-LucidChart"
+      - "SSO-Lucidchart Paid"
+      - "SSO-Lucidchart Free"
     adobe:
       - "SSO-Adobe"
     workato:

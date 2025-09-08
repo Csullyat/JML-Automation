@@ -437,6 +437,11 @@ class Config:
             'client_secret': client_secret
         }
 
+    def get_lucidchart_bearer_token(self) -> Optional[str]:
+        """Get Lucidchart SCIM bearer token from 1Password."""
+        paths = self.settings.get('onepassword', {}).get('paths', {})
+        return self._get_from_onepassword(paths.get('lucid_bearer_token', "op://IT/lucid_bearer_token/password"))
+
     # ========== Configuration Validation ==========
     
     def get_configuration_summary(self) -> Dict[str, Any]:

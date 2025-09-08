@@ -200,6 +200,16 @@ class SingleAppTerminator:
                     else:
                         return "Would skip Domo termination: user not in Domo groups"
                 return "Would check Domo groups and conditionally terminate"
+            elif app_name == "lucid":
+                # Check if user is in Lucidchart groups for dry run
+                lucid_groups = self.app_group_mapping.get(app_name, [])
+                if lucid_groups:
+                    user_lucid_groups = self.okta.get_user_groups_by_names(user_id, lucid_groups)
+                    if user_lucid_groups:
+                        return f"Would execute Lucidchart termination: user in groups {', '.join(user_lucid_groups)}, would delete from Lucidchart"
+                    else:
+                        return "Would skip Lucidchart termination: user not in Lucidchart groups"
+                return "Would check Lucidchart groups and conditionally terminate"
             else:
                 return f"Would delete user {user_email} from {app_name}"
             
@@ -356,6 +366,45 @@ class SingleAppTerminator:
                 
             except Exception as e:
                 return f"ERROR: Domo conditional termination failed: {e}"
+        elif app_name == "lucid":
+            # CONDITIONAL TERMINATION: Only process if user is in Lucidchart group
+            try:
+                # Step 1: Check if user is in Lucidchart Okta groups
+                lucid_groups = self.app_group_mapping.get(app_name, [])
+                if not lucid_groups:
+                    return "No Lucidchart groups configured"
+                
+                # Check which Lucidchart groups user is actually in
+                user_lucid_groups = self.okta.get_user_groups_by_names(user_id, lucid_groups)
+                
+                if not user_lucid_groups:
+                    return "✅ User not in Lucidchart groups, skipping termination"
+                
+                results = []
+                results.append(f"🔍 User found in groups: {', '.join(user_lucid_groups)}")
+                
+                # Step 2: Delete from Lucidchart (if user was in groups)
+                try:
+                    from jml_automation.services.lucid import LucidchartService
+                    lucid_service = LucidchartService()
+                    termination_result = lucid_service.execute_termination(user_email)
+                    
+                    if termination_result.get("success"):
+                        verified = termination_result.get("verified", False)
+                        if verified:
+                            results.append("✅ User deleted from Lucidchart and verified")
+                        else:
+                            results.append("⚠️ User deleted from Lucidchart but verification failed")
+                    else:
+                        results.append(f"❌ Lucidchart deletion failed: {termination_result.get('message', 'Unknown error')}")
+                        
+                except Exception as e:
+                    results.append(f"❌ Lucidchart deletion failed: {e}")
+                
+                return "; ".join(results)
+                
+            except Exception as e:
+                return f"ERROR: Lucidchart conditional termination failed: {e}"
         else:
             return f"User deletion not implemented for {app_name}"
     
