@@ -117,6 +117,10 @@ def run(
             ("Salt Lake City", "UT", "US"): "America/Denver",
             ("London", None, "GB"): "Europe/London",
             ("Tokyo", None, "JP"): "Asia/Tokyo",
+            # Czech Republic locations
+            ("Prague", "Czech Republic", "CZ"): "Europe/Prague",
+            ("Brno", "Czech Republic", "CZ"): "Europe/Prague",
+            ("Rajhrad", "Czech Republic", "CZ"): "Europe/Prague",
             # Add more as needed
         }
         key = (u.city, u.state if u.state else None, u.country_code)
@@ -125,17 +129,37 @@ def run(
             print(f"DEBUG: Used fallback timezone {timezone} for {key}")
         elif u.city and u.country_code:
             try:
-                geolocator = Nominatim(user_agent="jml_automation", timeout=5)
-                location_str = f"{u.city}, {u.state}, {u.country_code}" if u.state else f"{u.city}, {u.country_code}"
-                location = geolocator.geocode(location_str)
+                geolocator = Nominatim(user_agent="jml_automation", timeout=10)
+                # Try multiple location string formats for better geocoding
+                location_strings = []
+                if u.state and u.state != u.country_code:
+                    location_strings.append(f"{u.city}, {u.state}, {u.country_code}")
+                    location_strings.append(f"{u.city}, {u.state}")
+                location_strings.append(f"{u.city}, {u.country_code}")
+                location_strings.append(u.city)
+                
+                location = None
+                for location_str in location_strings:
+                    print(f"DEBUG: Trying to geocode: '{location_str}'")
+                    try:
+                        location = geolocator.geocode(location_str)
+                        if location and hasattr(location, "latitude") and hasattr(location, "longitude"):
+                            print(f"DEBUG: Successfully geocoded '{location_str}' to {location.latitude}, {location.longitude}")
+                            break
+                    except Exception as geo_e:
+                        print(f"DEBUG: Geocoding failed for '{location_str}': {geo_e}")
+                        continue
+                
                 if location and hasattr(location, "latitude") and hasattr(location, "longitude"):
                     tf = TimezoneFinder()
-                    timezone = tf.timezone_at(lat=location.latitude, lng=location.longitude)
-                    if not timezone:
-                        timezone = "America/Denver"
-                    print(f"DEBUG: Detected timezone {timezone} for {location_str}")
+                    detected_timezone = tf.timezone_at(lat=location.latitude, lng=location.longitude)
+                    if detected_timezone:
+                        timezone = detected_timezone
+                        print(f"DEBUG: Detected timezone {timezone} for coordinates {location.latitude}, {location.longitude}")
+                    else:
+                        print(f"DEBUG: TimezoneFinder returned None for coordinates {location.latitude}, {location.longitude}")
                 else:
-                    print(f"DEBUG: Could not geocode {location_str}, using default timezone")
+                    print(f"DEBUG: Could not geocode any location string for {u.city}, {u.state}, {u.country_code}")
             except Exception as e:
                 print(f"DEBUG: Error detecting timezone: {e}, using default")
 

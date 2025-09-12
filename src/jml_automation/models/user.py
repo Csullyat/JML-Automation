@@ -5,8 +5,10 @@ This module defines the UserProfile dataclass that represents
 a user to be onboarded or terminated.
 """
 
+
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
+from unidecode import unidecode
 
 
 @dataclass
@@ -64,10 +66,13 @@ class UserProfile:
         """Post-initialization processing."""
         # Generate work email if not provided
         if not self.email and self.name:
-            # Convert "FirstName LastName" to "firstname.lastname@filevine.com"
-            name_parts = self.name.lower().split()
+            # Convert "FirstName LastName" to "firstname.lastname@filevine.com", ASCII only
+            name_ascii = unidecode(self.name.lower())
+            name_parts = name_ascii.split()
             if len(name_parts) >= 2:
                 self.email = f"{name_parts[0]}.{name_parts[-1]}@filevine.com"
+            elif name_parts:
+                self.email = f"{name_parts[0]}@filevine.com"
     
     def to_okta_format(self) -> Dict[str, Any]:
         """

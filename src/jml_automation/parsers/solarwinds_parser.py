@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, date
 from typing import Literal, Optional, TypedDict, Union, Dict, List
+from unidecode import unidecode
 from jml_automation.models.ticket import UserProfile, OnboardingTicket, TerminationTicket
 from jml_automation.services.solarwinds import SolarWindsService, SWSDClientError
 
@@ -113,7 +114,9 @@ def extract_email_from_field(field_value: Union[str, Dict], field_name: str = ""
         
         # Username format (alphanumeric but not all digits)
         if field_str.isalnum() and not field_str.isdigit():
-            email = f"{field_str.lower()}@filevine.com"
+            # Normalize Unicode characters to ASCII for email generation
+            username_ascii = unidecode(field_str).lower()
+            email = f"{username_ascii}@filevine.com"
             log.info(f"Converted username '{field_str}' to email '{email}'")
             return email
         
@@ -265,7 +268,10 @@ def parse_onboarding(raw: RawTicket) -> OnboardingTicket:
         email = _norm_email(cf.get("New Employee Email"))
     # Otherwise infer from name
     if not email and first and last:
-        email = f"{first}{last}".replace(" ", "").lower() + "@filevine.com"
+        # Normalize Unicode characters to ASCII for email generation
+        first_ascii = unidecode(first).replace(" ", "").lower()
+        last_ascii = unidecode(last).replace(" ", "").lower()
+        email = f"{first_ascii}{last_ascii}@filevine.com"
 
     # Build a user profile
     reports_to_field = cf.get("Reports to")
@@ -453,7 +459,10 @@ def parse_termination(raw: RawTicket) -> TerminationTicket:
     
     # If still no email and we have names, generate one
     if not email and first and last:
-        email = f"{first}{last}".replace(" ", "").lower() + "@filevine.com"
+        # Normalize Unicode characters to ASCII for email generation
+        first_ascii = unidecode(first).replace(" ", "").lower()
+        last_ascii = unidecode(last).replace(" ", "").lower()
+        email = f"{first_ascii}{last_ascii}@filevine.com"
 
     # Enhanced manager email extraction
     manager_email = None
