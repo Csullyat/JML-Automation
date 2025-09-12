@@ -8,7 +8,7 @@ if ($env:PSModulePath -notlike "*$userModulePath*") {
 
 try {
     Import-Module CredentialManager -Force
-    $cred = Get-StoredCredential -Target 'OktaAutomation'
+    $cred = Get-StoredCredential -Target 'JML Service Account'
     if ($cred) {
         $token = $cred.GetNetworkCredential().Password
         # Clean the token - extract the real ops_ token if it has placeholder text

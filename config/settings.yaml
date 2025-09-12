@@ -31,8 +31,12 @@ onepassword:
     domo_client_id: "op://IT/domo-api/Domo Client ID"
     domo_client_secret: "op://IT/domo-api/Domo Client Secret"
     lucid_bearer_token: "op://IT/lucid_bearer_token/password"
-    synqprox_username: "op://IT/synqprox-admin/username"
-    synqprox_password: "op://IT/synqprox-admin/password"
+    synqprox_username: "op://IT/SynQ Prox/username"
+    synqprox_password: "op://IT/SynQ Prox/password"
+
+# Windows Credential Manager settings
+credential_manager:
+  service_account_name: "JML Service Account"
 
 solarwinds:
   base_url: "https://api.samanage.com"

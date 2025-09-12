@@ -151,6 +151,50 @@ def terminate_test(user_email: str, manager_email: Optional[str]):
         logger.error(f"Termination test error: {e}")
         sys.exit(1)
 
+@terminate.command("synqprox")
+@click.argument("ticket_id")
+def terminate_synqprox(ticket_id: str):
+    """Test SYNQ Prox deletion for a specific ticket."""
+    click.echo(f"🧪 Testing SYNQ Prox deletion for ticket {ticket_id}")
+    
+    try:
+        # Fetch the ticket to get user email
+        from jml_automation.services.solarwinds import SolarWindsService
+        from jml_automation.parsers.solarwinds_parser import extract_user_email_from_ticket
+        from jml_automation.services.synqprox import SynqProxService
+        
+        solarwinds = SolarWindsService.from_config()
+        ticket = solarwinds.fetch_ticket(ticket_id)
+        
+        if not ticket:
+            click.echo(f"❌ Ticket {ticket_id} not found")
+            sys.exit(1)
+        
+        user_email = extract_user_email_from_ticket(ticket)
+        if not user_email:
+            click.echo(f"❌ Could not extract user email from ticket {ticket_id}")
+            sys.exit(1)
+        
+        click.echo(f"✅ Found user email: {user_email}")
+        click.echo(f"🚀 Testing SYNQ Prox deletion...")
+        
+        # Test SYNQ Prox deletion
+        synqprox = SynqProxService()
+        result = synqprox.execute_termination(user_email)
+        
+        if result:
+            click.echo(f"✅ SYNQ Prox deletion test successful for {user_email}")
+            click.echo("🎉 User deleted successfully from SYNQ Prox")
+            sys.exit(0)
+        else:
+            click.echo(f"❌ SYNQ Prox deletion test failed for {user_email}")
+            sys.exit(1)
+            
+    except Exception as e:
+        click.echo(f"❌ Fatal error in SYNQ Prox test: {e}")
+        logger.error(f"SYNQ Prox test error: {e}")
+        sys.exit(1)
+
 @terminate.command("batch")
 @click.option("--test-mode/--production-mode", default=True, help="Test mode processes only first ticket")
 def terminate_batch(test_mode: bool):

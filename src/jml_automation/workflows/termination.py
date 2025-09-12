@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Any, Tuple, Union
 
 from jml_automation.services.solarwinds import SolarWindsService
 from jml_automation.services.okta import OktaService
+from jml_automation.services.synqprox import SynqProxService
 from jml_automation.config import Config
 from jml_automation.logger import setup_logging
 from jml_automation.models.ticket import TerminationTicket, UserProfile
@@ -100,6 +101,7 @@ class TerminationWorkflow:
         try:
             self.solarwinds = SolarWindsService.from_config()
             self.okta = OktaService.from_config()
+            self.synqprox = SynqProxService()
             
             # Initialize other services (replace stubs with actual implementations when available)
             self.microsoft = MicrosoftService()
@@ -185,6 +187,21 @@ class TerminationWorkflow:
             except Exception as e:
                 actions_failed.append(f"Failed to remove groups: {e}")
                 logger.error(f"Failed to remove from groups: {e}")
+            
+            # Step 3.5: SYNQ Prox Termination (Unconditional)
+            logger.info(f"Processing SYNQ Prox termination for {user_email}")
+            try:
+                synq_result = self.synqprox.execute_termination(user_email)
+                if synq_result.get('success'):
+                    actions_completed.append("SYNQ Prox user deleted")
+                    logger.info("SYNQ Prox termination completed successfully")
+                else:
+                    # SYNQ Prox failure is not critical - log as warning
+                    warnings.append(f"SYNQ Prox termination failed: {synq_result.get('message', 'Unknown error')}")
+                    logger.warning(f"SYNQ Prox termination failed: {synq_result.get('message', 'Unknown error')}")
+            except Exception as e:
+                warnings.append(f"SYNQ Prox termination error: {e}")
+                logger.warning(f"SYNQ Prox termination error: {e}")
             
             # Step 4: Deactivate user (if not already deactivated)
             if user_status not in ['DEPROVISIONED', 'SUSPENDED']:
