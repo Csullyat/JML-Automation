@@ -157,8 +157,8 @@ class SynqProxService(BaseService):
             time.sleep(2)
             
             # Step 3: Click the Login button
-            login_button_x = 660  # Moved right 150 pixels from original (510 + 150)
-            login_button_y = 718  # Moved down 200 pixels from original (518 + 200)
+            login_button_x = 810  # Moved right 150 pixels more (660 + 150)
+            login_button_y = 673  # Moved up 45 pixels (718 - 45)
             
             logger.info(f"Clicking Login button at ({login_button_x}, {login_button_y})")
             
