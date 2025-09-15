@@ -8,7 +8,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.auth.exceptions import RefreshError
 
-from jml_automation import config
+from jml_automation.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,7 @@ class GoogleTermination:
     def __init__(self):
         """Initialize Google Workspace termination client."""
         try:
+            config = Config()
             self.credentials = config.get_google_service_account_credentials()
             self.admin_service = build('admin', 'directory_v1', credentials=self.credentials)
             self.gmail_service = build('gmail', 'v1', credentials=self.credentials)

@@ -102,11 +102,15 @@ class SynqProxService(BaseService):
             self.driver.get(self.base_url)
             
             # Wait for page to load
-            time.sleep(5)
+            time.sleep(3)
             
             # Take a screenshot of the login page for debugging
             self.driver.save_screenshot("screenshots/synqprox_login_page.png")
             logger.info("Login page screenshot saved")
+            
+            # Give the site additional time to fully load before entering credentials
+            logger.info("Waiting 3 seconds for site to fully load before entering credentials...")
+            time.sleep(3)
             
             # Enter credentials using JavaScript with proper sequence
             login_success = self.driver.execute_script(f"""
@@ -133,111 +137,56 @@ class SynqProxService(BaseService):
             
             logger.info(f"Email entry result: {login_success}")
             self.driver.save_screenshot("screenshots/synqprox_01_email_entered.png")
-            time.sleep(2)
             
-            # Step 2: Fill password field
+            # CRITICAL: TAB out of email field to move to password field
+            logger.info("PRESSING TAB to move from email to password field")
+            active_element = self.driver.switch_to.active_element
+            active_element.send_keys(Keys.TAB)
+            time.sleep(0.5)  # Brief pause for focus to move
+            
+            # Step 2: Enter password in the now-focused password field
             password_success = self.driver.execute_script(f"""
                 var passwordField = document.querySelector('input[type="password"]');
-                if (passwordField) {{
+                if (passwordField && document.activeElement === passwordField) {{
+                    passwordField.value = '';
+                    passwordField.value = '{password}';
+                    passwordField.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    passwordField.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    console.log('Password entered in focused field');
+                    return 'password_entered_in_focused_field';
+                }} else {{
+                    // Fallback: focus password field manually if TAB didn't work
                     passwordField.focus();
                     passwordField.value = '';
                     passwordField.value = '{password}';
                     passwordField.dispatchEvent(new Event('input', {{ bubbles: true }}));
                     passwordField.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    console.log('Password entered');
-                    return 'password_entered';
-                }} else {{
-                    console.log('Password field not found');
-                    return 'password_field_not_found';
+                    console.log('Password entered with manual focus');
+                    return 'password_entered_manual_focus';
                 }}
             """)
             
             logger.info(f"Password entry result: {password_success}")
             self.driver.save_screenshot("screenshots/synqprox_02_password_entered.png")
-            time.sleep(2)
             
-            # Step 3: Click the Login button
-            login_button_x = 810  # Moved right 150 pixels more (660 + 150)
-            login_button_y = 673  # Moved up 45 pixels (718 - 45)
+            # Step 3: Now we should be in the password field - press Enter
+            logger.info("PRESSING ENTER to submit form (should be focused on password field)")
+            try:
+                active_element = self.driver.switch_to.active_element
+                active_element.send_keys(Keys.ENTER)
+                logger.info("SUCCESS: Enter key sent from password field")
+            except Exception as e:
+                logger.error(f"ERROR: Failed to send Enter key: {e}")
+                return False
             
-            logger.info(f"Clicking Login button at ({login_button_x}, {login_button_y})")
+            # Take screenshot immediately after Enter
+            self.driver.save_screenshot("screenshots/synqprox_03_enter_sent.png")
             
-            login_click_success = self.driver.execute_script(f"""
-                // First try to find a login button in the DOM
-                var loginButton = document.querySelector('button') || 
-                                 document.querySelector('[role="button"]') ||
-                                 document.querySelector('input[type="submit"]');
-                
-                if (loginButton) {{
-                    loginButton.click();
-                    console.log('DOM login button clicked');
-                    return 'dom_login_button_clicked';
-                }}
-                
-                // If no DOM button found, try canvas approach
-                var canvas = document.querySelector('canvas');
-                if (!canvas) {{
-                    console.log('No canvas or DOM button found, trying Enter key fallback');
-                    // Fallback to Enter key press
-                    var passwordField = document.querySelector('input[type="password"]');
-                    if (passwordField) {{
-                        passwordField.focus();
-                        var enterEvent = new KeyboardEvent('keydown', {{
-                            key: 'Enter',
-                            code: 'Enter',
-                            keyCode: 13,
-                            which: 13,
-                            bubbles: true
-                        }});
-                        passwordField.dispatchEvent(enterEvent);
-                        console.log('Enter pressed on password field as fallback');
-                        return 'enter_fallback_used';
-                    }}
-                    return 'no_login_method_found';
-                }}
-                
-                // Canvas approach for Flutter app
-                var rect = canvas.getBoundingClientRect();
-                var actualX = rect.left + {login_button_x};
-                var actualY = rect.top + {login_button_y};
-                
-                console.log('Canvas rect:', rect);
-                console.log('Clicking login button at actual coordinates:', actualX, actualY);
-                
-                // Create and dispatch the pointer event
-                var event = new PointerEvent('pointerdown', {{
-                    pointerId: 1,
-                    bubbles: true,
-                    cancelable: true,
-                    clientX: actualX,
-                    clientY: actualY,
-                    button: 0,
-                    buttons: 1
-                }});
-                
-                canvas.dispatchEvent(event);
-                
-                // Follow up with pointerup
-                var upEvent = new PointerEvent('pointerup', {{
-                    pointerId: 1,
-                    bubbles: true,
-                    cancelable: true,
-                    clientX: actualX,
-                    clientY: actualY,
-                    button: 0,
-                    buttons: 0
-                }});
-                
-                canvas.dispatchEvent(upEvent);
-                
-                console.log('Canvas login button clicked successfully');
-                return 'canvas_login_button_clicked';
-            """)
+            # Wait and check if login worked
+            time.sleep(3)
+            self.driver.save_screenshot("screenshots/synqprox_03_after_wait.png")
             
-            logger.info(f"Login button click result: {login_click_success}")
-            self._take_screenshot_with_dot("synqprox_03_login_button_clicked.png", login_button_x, login_button_y, "LOGIN BUTTON CLICK")
-            
-            if not login_success or not password_success or not login_click_success:
+            if not login_success:
                 logger.error("Failed to complete login process properly")
                 return False
             
@@ -403,7 +352,7 @@ class SynqProxService(BaseService):
             confirm_x = 510  
             confirm_y = 390  
             
-            logger.info(f"🔧 HEADLESS MODE COORDINATES:")
+            logger.info(f" HEADLESS MODE COORDINATES:")
             logger.info(f"   Users: ({users_x}, {users_y})")
             logger.info(f"   Search: ({search_field_x}, {search_field_y})")
             logger.info(f"   Delete: ({delete_x}, {delete_y})")

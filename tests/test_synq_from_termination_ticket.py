@@ -31,16 +31,16 @@ def test_synq_delete_from_termination_ticket():
         ticket_data = solarwinds_service.fetch_ticket("64570")
         
         if not ticket_data:
-            print("❌ Failed to fetch ticket 64570")
+            print("ERROR: Failed to fetch ticket 64570")
             return False
         
-        print(f"✅ Successfully fetched ticket 64570: {ticket_data.get('subject', 'No subject')}")
+        print(f"SUCCESS: Successfully fetched ticket 64570: {ticket_data.get('subject', 'No subject')}")
         
         # Extract the termination email
         termination_email = extract_user_email_from_ticket(ticket_data)
         
         if not termination_email:
-            print("❌ Could not extract termination email from ticket 64570")
+            print("ERROR: Could not extract termination email from ticket 64570")
             print("Available custom fields:")
             custom_fields = ticket_data.get('custom_fields_values', [])
             for field in custom_fields[:10]:  # Show first 10 fields
@@ -49,7 +49,7 @@ def test_synq_delete_from_termination_ticket():
                 print(f"  - {name}: {value}")
             return False
         
-        print(f"✅ Extracted termination email: {termination_email}")
+        print(f"SUCCESS: Extracted termination email: {termination_email}")
         
         # Initialize SYNQ Prox service
         synq_service = SynqProxService()
@@ -60,14 +60,14 @@ def test_synq_delete_from_termination_ticket():
         result = synq_service.delete_user(termination_email)
         
         if result:
-            print(f"✅ Successfully processed SYNQ Prox deletion for: {termination_email}")
+            print(f"SUCCESS: Successfully processed SYNQ Prox deletion for: {termination_email}")
             return True
         else:
-            print(f"❌ Failed to delete user from SYNQ Prox: {termination_email}")
+            print(f"ERROR: Failed to delete user from SYNQ Prox: {termination_email}")
             return False
             
     except Exception as e:
-        print(f"❌ Error during test: {e}")
+        print(f"ERROR: Error during test: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -75,7 +75,7 @@ def test_synq_delete_from_termination_ticket():
 if __name__ == "__main__":
     success = test_synq_delete_from_termination_ticket()
     if success:
-        print("\n🎉 Test completed successfully!")
+        print("\n Test completed successfully!")
     else:
-        print("\n💥 Test failed!")
+        print("\nFAILED: Test failed!")
         sys.exit(1)

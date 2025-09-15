@@ -51,7 +51,7 @@ def create_init_files():
     main_init.write_text(main_init_content)
     print(f"✓ Updated main init: {main_init}")
     
-    print(f"\n✅ Created/verified {len(directories)} __init__.py files")
+    print(f"\nSUCCESS: Created/verified {len(directories)} __init__.py files")
     return created_count
 
 if __name__ == "__main__":

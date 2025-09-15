@@ -389,17 +389,17 @@ class TerminationWorkflow:
         try:
             # Phase 1: Okta (highest priority - immediate security)
             if "okta" in phases:
-                logger.info("🔒 PHASE 1: Okta user deactivation and security cleanup")
+                logger.info(" PHASE 1: Okta user deactivation and security cleanup")
                 try:
                     okta_results = self.execute_okta_termination(user_email)
                     termination_results["okta_results"] = okta_results
                     
                     if okta_results.get("success"):
-                        termination_results["summary"].append("✅ Okta: User deactivated, groups removed, sessions cleared")
+                        termination_results["summary"].append("SUCCESS: Okta: User deactivated, groups removed, sessions cleared")
                         termination_results["phase_success"]["okta"] = True
                         logger.info("Okta termination phase completed successfully")
                     else:
-                        termination_results["summary"].append("⚠️ Okta: Termination had issues")
+                        termination_results["summary"].append("WARNING: Okta: Termination had issues")
                         termination_results["phase_success"]["okta"] = False
                         termination_results["errors"].extend(okta_results.get("errors", []))
                         logger.warning("Okta termination phase had issues")
@@ -412,7 +412,7 @@ class TerminationWorkflow:
 
             # Phase 2: Microsoft 365
             if "microsoft" in phases:
-                logger.info("📧 PHASE 2: Microsoft 365 mailbox and license management")
+                logger.info(" PHASE 2: Microsoft 365 mailbox and license management")
                 if manager_email:
                     try:
                         ms_results = self.microsoft.execute_complete_termination(
@@ -421,10 +421,10 @@ class TerminationWorkflow:
                         termination_results["microsoft_results"] = ms_results
                         
                         if ms_results.get("success"):
-                            termination_results["summary"].append("✅ Microsoft: Mailbox converted, licenses removed")
+                            termination_results["summary"].append("SUCCESS: Microsoft: Mailbox converted, licenses removed")
                             termination_results["phase_success"]["microsoft"] = True
                         else:
-                            termination_results["summary"].append("⚠️ Microsoft: Not yet implemented")
+                            termination_results["summary"].append("WARNING: Microsoft: Not yet implemented")
                             termination_results["phase_success"]["microsoft"] = False
                             termination_results["warnings"].append("Microsoft service not yet implemented")
                     except Exception as e:
@@ -436,7 +436,7 @@ class TerminationWorkflow:
 
             # Phase 3: Google Workspace
             if "google" in phases:
-                logger.info("🌐 PHASE 3: Google Workspace termination and data transfer")
+                logger.info(" PHASE 3: Google Workspace termination and data transfer")
                 if manager_email:
                     try:
                         g_results = self.google.execute_complete_termination(
@@ -445,10 +445,10 @@ class TerminationWorkflow:
                         termination_results["google_results"] = g_results
                         
                         if g_results.get("success"):
-                            termination_results["summary"].append("✅ Google: User suspended, data transferred")
+                            termination_results["summary"].append("SUCCESS: Google: User suspended, data transferred")
                             termination_results["phase_success"]["google"] = True
                         else:
-                            termination_results["summary"].append("⚠️ Google: Not yet implemented")
+                            termination_results["summary"].append("WARNING: Google: Not yet implemented")
                             termination_results["phase_success"]["google"] = False
                             termination_results["warnings"].append("Google service not yet implemented")
                     except Exception as e:
@@ -460,7 +460,7 @@ class TerminationWorkflow:
 
             # Phase 4: Zoom
             if "zoom" in phases:
-                logger.info("📹 PHASE 4: Zoom account termination and cleanup")
+                logger.info(" PHASE 4: Zoom account termination and cleanup")
                 try:
                     z_results = self.zoom.execute_complete_termination(
                         user_email, manager_email
@@ -468,10 +468,10 @@ class TerminationWorkflow:
                     termination_results["zoom_results"] = z_results
                     
                     if z_results.get("success"):
-                        termination_results["summary"].append("✅ Zoom: User deactivated")
+                        termination_results["summary"].append("SUCCESS: Zoom: User deactivated")
                         termination_results["phase_success"]["zoom"] = True
                     else:
-                        termination_results["summary"].append("⚠️ Zoom: Not yet implemented")
+                        termination_results["summary"].append("WARNING: Zoom: Not yet implemented")
                         termination_results["phase_success"]["zoom"] = False
                         termination_results["warnings"].append("Zoom service not yet implemented")
                 except Exception as e:
@@ -481,13 +481,13 @@ class TerminationWorkflow:
             # Update ticket status
             if ticket_id:
                 try:
-                    logger.info(f"📋 Updating ticket {ticket_id} status")
+                    logger.info(f" Updating ticket {ticket_id} status")
                     self.solarwinds.update_ticket_status(
                         ticket_id,
                         "In Progress",
                         notes=f"Termination processing - Okta: {'✓' if termination_results['phase_success'].get('okta') else '✗'}"
                     )
-                    termination_results["summary"].append(f"📋 Ticket {ticket_id} updated")
+                    termination_results["summary"].append(f" Ticket {ticket_id} updated")
                 except Exception as e:
                     logger.error(f"Failed to update ticket {ticket_id}: {e}")
                     termination_results["warnings"].append(f"Failed to update ticket {ticket_id}")
@@ -730,7 +730,7 @@ class TerminationWorkflow:
     
     def test_termination(self, user_email: str, manager_email: Optional[str] = None) -> Dict:
         """Execute termination in test mode (validation only)."""
-        logger.info(f"🧪 RUNNING TEST MODE TERMINATION for {user_email}")
+        logger.info(f"TEST: RUNNING TEST MODE TERMINATION for {user_email}")
         
         test_results = {
             "user_email": user_email,
@@ -799,7 +799,7 @@ class TerminationWorkflow:
             test_results["end_time"] = datetime.now()
             duration = (test_results["end_time"] - test_results["start_time"]).total_seconds()
             
-            logger.info(f"🧪 TEST MODE COMPLETED in {duration:.1f}s - Ready: {test_results['overall_ready']}")
+            logger.info(f"TEST: TEST MODE COMPLETED in {duration:.1f}s - Ready: {test_results['overall_ready']}")
             return test_results
             
         except Exception as e:
@@ -819,20 +819,20 @@ class TerminationWorkflow:
             
             if overall_success:
                 status = "COMPLETED SUCCESSFULLY"
-                emoji = "✅"
+                emoji = "SUCCESS:"
             elif any(phase_success.values()):
                 status = "COMPLETED WITH ISSUES"
-                emoji = "⚠️"
+                emoji = "WARNING:"
             else:
                 status = "FAILED"
-                emoji = "❌"
+                emoji = "ERROR:"
             
             logger.info(f"{emoji} TERMINATION {status}: {user_email}")
             
             # Log phase status
             phase_status = []
             for phase, success in phase_success.items():
-                icon = "✅" if success else "❌"
+                icon = "SUCCESS:" if success else "ERROR:"
                 phase_status.append(f"{icon} {phase.title()}")
             
             if phase_status:
@@ -862,11 +862,11 @@ class TerminationWorkflow:
             success_rate = (total_successful / total_processed * 100) if total_processed > 0 else 0
             
             if success_rate == 100:
-                status = "ALL SUCCESSFUL ✅"
+                status = "ALL SUCCESSFUL SUCCESS:"
             elif success_rate >= 80:
-                status = "MOSTLY SUCCESSFUL ⚠️"
+                status = "MOSTLY SUCCESSFUL WARNING:"
             else:
-                status = "ISSUES DETECTED ❌"
+                status = "ISSUES DETECTED ERROR:"
             
             logger.info(f"BATCH TERMINATION: {status}")
             logger.info(f"Total Processed: {total_processed}")
@@ -880,10 +880,10 @@ class TerminationWorkflow:
                 phase_icons = []
                 for phase in ["okta", "microsoft", "google", "zoom"]:
                     if phase in phases:
-                        icon = "✅" if phases[phase] else "❌"
+                        icon = "SUCCESS:" if phases[phase] else "ERROR:"
                         phase_icons.append(f"{phase[0].upper()}{icon}")
                 
-                status_icon = "✅" if user["success"] else "❌"
+                status_icon = "SUCCESS:" if user["success"] else "ERROR:"
                 phase_summary = " ".join(phase_icons) if phase_icons else "No phases"
                 logger.info(f"  {status_icon} {user['user_email']} ({phase_summary})")
             
@@ -935,14 +935,14 @@ def main():
                 logger.info(f"Running test mode for {user_email}")
                 results = workflow.test_termination(user_email, manager_email)
                 
-                print(f"\n🧪 TEST MODE RESULTS for {user_email}")
-                print(f"Overall Ready: {'✅ YES' if results['overall_ready'] else '❌ NO'}")
+                print(f"\nTEST: TEST MODE RESULTS for {user_email}")
+                print(f"Overall Ready: {'SUCCESS: YES' if results['overall_ready'] else 'ERROR: NO'}")
                 print(f"\nWould Execute:")
                 for action in results["would_execute"]:
-                    print(f"  ✅ {action}")
+                    print(f"  SUCCESS: {action}")
                 print(f"\nPotential Issues:")
                 for issue in results["potential_issues"]:
-                    print(f"  ⚠️ {issue}")
+                    print(f"  WARNING: {issue}")
                 
                 sys.exit(0 if results["overall_ready"] else 1)
                 
@@ -971,10 +971,10 @@ def main():
                 results = workflow.execute_multi_phase_termination(user_email, manager_email, phases=phases)
                 
                 if results["overall_success"]:
-                    print(f"✅ TERMINATION SUCCESSFUL for {user_email}")
+                    print(f"SUCCESS: TERMINATION SUCCESSFUL for {user_email}")
                     sys.exit(0)
                 else:
-                    print(f"⚠️ TERMINATION COMPLETED WITH ISSUES for {user_email}")
+                    print(f"WARNING: TERMINATION COMPLETED WITH ISSUES for {user_email}")
                     sys.exit(1)
         else:
             # Default: Run batch processing
@@ -987,6 +987,267 @@ def main():
     except Exception as e:
         logger.error(f"Fatal error in termination automation: {e}")
         sys.exit(1)
+    
+    # ========== COMPREHENSIVE TICKET-BASED TERMINATION ==========
+    
+    def execute_comprehensive_termination_from_ticket(self, ticket_id: str) -> Dict[str, Any]:
+        """
+        Execute complete termination workflow from a single ticket number.
+        
+        This is the master workflow that handles everything:
+        1. Fetch ticket from SolarWinds
+        2. Extract user and manager information 
+        3. Execute all termination steps across all systems
+        
+        Args:
+            ticket_id: SolarWinds ticket number (e.g., "64570")
+            
+        Returns:
+            Comprehensive results dictionary with all system results
+        """
+        logger.info(f" STARTING COMPREHENSIVE TERMINATION FOR TICKET {ticket_id}")
+        logger.info("=" * 80)
+        
+        start_time = datetime.now()
+        workflow_results = {
+            'ticket_id': ticket_id,
+            'start_time': start_time,
+            'overall_success': False,
+            'user_email': None,
+            'manager_email': None,
+            'ticket_data': None,
+            'system_results': {},
+            'summary': [],
+            'errors': [],
+            'warnings': []
+        }
+        
+        try:
+            # STEP 1: Fetch and parse ticket
+            logger.info(f" STEP 1: Fetching termination ticket {ticket_id}")
+            ticket_data = self.solarwinds.fetch_ticket(ticket_id)
+            
+            if not ticket_data:
+                error_msg = f"Failed to fetch ticket {ticket_id}"
+                logger.error(error_msg)
+                workflow_results['errors'].append(error_msg)
+                return workflow_results
+            
+            workflow_results['ticket_data'] = ticket_data
+            ticket_subject = ticket_data.get('subject', 'No subject')
+            logger.info(f"SUCCESS: Ticket fetched: {ticket_subject}")
+            
+            # STEP 2: Extract user and manager emails
+            logger.info(" STEP 2: Extracting user and manager information")
+            user_email = extract_user_email_from_ticket(ticket_data)
+            manager_email = extract_manager_email_from_ticket(ticket_data)
+            
+            if not user_email:
+                error_msg = "Could not extract user email from ticket"
+                logger.error(error_msg)
+                workflow_results['errors'].append(error_msg)
+                return workflow_results
+            
+            workflow_results['user_email'] = user_email
+            workflow_results['manager_email'] = manager_email
+            logger.info(f"SUCCESS: Target user: {user_email}")
+            if manager_email:
+                logger.info(f"SUCCESS: Manager: {manager_email}")
+            else:
+                logger.warning("WARNING:  No manager email found")
+            
+            # STEP 3: Execute Okta termination (highest priority)
+            logger.info(" STEP 3: OKTA TERMINATION")
+            logger.info("   - Finding user in Okta")
+            logger.info("   - Clearing all sessions") 
+            logger.info("   - Deactivating user")
+            logger.info("   - Removing from groups")
+            
+            okta_result = self.execute_okta_termination(user_email)
+            workflow_results['system_results']['okta'] = okta_result
+            
+            if okta_result.get('success'):
+                workflow_results['summary'].append("SUCCESS: Okta: User deactivated, sessions cleared, groups removed")
+                logger.info("SUCCESS: Okta termination completed successfully")
+            else:
+                error_msg = f"ERROR: Okta termination failed: {okta_result.get('error', 'Unknown error')}"
+                workflow_results['errors'].append(error_msg)
+                logger.error(error_msg)
+            
+            # STEP 4: Exchange and M365 termination
+            logger.info(" STEP 4: MICROSOFT 365 & EXCHANGE TERMINATION")
+            logger.info("   - Converting mailbox to shared")
+            logger.info("   - Setting delegate permissions")
+            logger.info("   - Revoking M365 licenses")
+            logger.info("   - Removing from M365 groups")
+            
+            try:
+                from jml_automation.services.microsoft import MicrosoftTermination
+                microsoft_service = MicrosoftTermination()
+                microsoft_result = microsoft_service.execute_complete_termination(user_email, manager_email or "")
+                workflow_results['system_results']['microsoft'] = microsoft_result
+                
+                if microsoft_result.get('success'):
+                    workflow_results['summary'].append("SUCCESS: Microsoft: Mailbox converted, licenses revoked, groups removed")
+                    logger.info("SUCCESS: Microsoft termination completed successfully")
+                else:
+                    error_msg = f"ERROR: Microsoft termination failed: {microsoft_result.get('error', 'Unknown error')}"
+                    workflow_results['warnings'].append(error_msg)  # Not critical
+                    logger.warning(error_msg)
+            except Exception as e:
+                error_msg = f"ERROR: Microsoft termination error: {e}"
+                workflow_results['warnings'].append(error_msg)
+                logger.warning(error_msg)
+            
+            # STEP 5: Google Workspace termination
+            logger.info(" STEP 5: GOOGLE WORKSPACE TERMINATION")
+            logger.info("   - Transferring Google Drive data")
+            logger.info("   - Deleting user account")
+            
+            try:
+                from jml_automation.services.google import GoogleTerminationManager
+                google_service = GoogleTerminationManager()
+                google_result = google_service.execute_complete_termination(user_email, manager_email or "")
+                workflow_results['system_results']['google'] = {'success': google_result}
+                
+                if google_result:
+                    workflow_results['summary'].append("SUCCESS: Google: Data transferred, user deleted")
+                    logger.info("SUCCESS: Google termination completed successfully")
+                else:
+                    error_msg = f"ERROR: Google termination failed"
+                    workflow_results['warnings'].append(error_msg)
+                    logger.warning(error_msg)
+            except Exception as e:
+                error_msg = f"ERROR: Google termination error: {e}"
+                workflow_results['warnings'].append(error_msg)
+                logger.warning(error_msg)
+            
+            # STEP 6: Zoom termination
+            logger.info(" STEP 6: ZOOM TERMINATION")
+            logger.info("   - Transferring Zoom data")
+            logger.info("   - Deleting user account")
+            
+            try:
+                from jml_automation.services.zoom import ZoomService
+                zoom_service = ZoomService()
+                zoom_result = zoom_service.execute_complete_termination(user_email, manager_email)
+                workflow_results['system_results']['zoom'] = zoom_result
+                
+                if zoom_result.get('success'):
+                    workflow_results['summary'].append("SUCCESS: Zoom: Data transferred, user deleted")
+                    logger.info("SUCCESS: Zoom termination completed successfully")
+                else:
+                    error_msg = f"ERROR: Zoom termination failed: {zoom_result.get('error', 'Unknown error')}"
+                    workflow_results['warnings'].append(error_msg)
+                    logger.warning(error_msg)
+            except Exception as e:
+                error_msg = f"ERROR: Zoom termination error: {e}"
+                workflow_results['warnings'].append(error_msg)
+                logger.warning(error_msg)
+            
+            # STEP 7: Domo termination
+            logger.info(" STEP 7: DOMO TERMINATION")
+            logger.info("   - Deleting user from Domo")
+            
+            try:
+                from jml_automation.services.domo import DomoService
+                domo_service = DomoService()
+                domo_result = domo_service.execute_termination(user_email)
+                workflow_results['system_results']['domo'] = domo_result
+                
+                if domo_result.get('success'):
+                    workflow_results['summary'].append("SUCCESS: Domo: User deleted")
+                    logger.info("SUCCESS: Domo termination completed successfully")
+                else:
+                    error_msg = f"ERROR: Domo termination failed: {domo_result.get('error', 'Unknown error')}"
+                    workflow_results['warnings'].append(error_msg)
+                    logger.warning(error_msg)
+            except Exception as e:
+                error_msg = f"ERROR: Domo termination error: {e}"
+                workflow_results['warnings'].append(error_msg)
+                logger.warning(error_msg)
+            
+            # STEP 8: Lucid termination
+            logger.info(" STEP 8: LUCID TERMINATION")
+            logger.info("   - Transferring Lucid data")
+            logger.info("   - Deleting user account")
+            logger.info("   - Removing from Okta Lucid groups")
+            
+            try:
+                from jml_automation.services.lucid import LucidService
+                lucid_service = LucidService()
+                lucid_result = lucid_service.execute_complete_termination(user_email, manager_email)
+                workflow_results['system_results']['lucid'] = lucid_result
+                
+                if lucid_result.get('success'):
+                    workflow_results['summary'].append("SUCCESS: Lucid: Data transferred, user deleted, groups removed")
+                    logger.info("SUCCESS: Lucid termination completed successfully")
+                else:
+                    error_msg = f"ERROR: Lucid termination failed: {lucid_result.get('error', 'Unknown error')}"
+                    workflow_results['warnings'].append(error_msg)
+                    logger.warning(error_msg)
+            except Exception as e:
+                error_msg = f"ERROR: Lucid termination error: {e}"
+                workflow_results['warnings'].append(error_msg)
+                logger.warning(error_msg)
+            
+            # STEP 9: SYNQ Prox termination (final step)
+            logger.info(" STEP 9: SYNQ PROX TERMINATION")
+            logger.info("   - Deleting user from SYNQ Prox")
+            
+            synq_result = self.synqprox.execute_termination(user_email)
+            workflow_results['system_results']['synqprox'] = synq_result
+            
+            if synq_result.get('success'):
+                workflow_results['summary'].append("SUCCESS: SYNQ Prox: User deleted")
+                logger.info("SUCCESS: SYNQ Prox termination completed successfully")
+            else:
+                error_msg = f"ERROR: SYNQ Prox termination failed: {synq_result.get('error', 'Unknown error')}"
+                workflow_results['warnings'].append(error_msg)  # SYNQ failure not critical
+                logger.warning(error_msg)
+            
+            # STEP 10: Calculate overall success
+            end_time = datetime.now()
+            duration = end_time - start_time
+            workflow_results['end_time'] = end_time
+            workflow_results['duration'] = duration.total_seconds()
+            
+            # Success if Okta worked (minimum requirement)
+            critical_success = okta_result.get('success', False)
+            workflow_results['overall_success'] = critical_success
+            
+            # Generate final summary
+            logger.info("=" * 80)
+            logger.info(" COMPREHENSIVE TERMINATION COMPLETED")
+            logger.info("=" * 80)
+            logger.info(f" Ticket: {ticket_id}")
+            logger.info(f"User: User: {user_email}")
+            logger.info(f"  Duration: {duration}")
+            logger.info(f"SUCCESS: Overall Success: {workflow_results['overall_success']}")
+            
+            logger.info("\n SYSTEM RESULTS:")
+            for system, result in workflow_results['system_results'].items():
+                status = "SUCCESS:" if result.get('success') else "ERROR:"
+                logger.info(f"   {status} {system.upper()}: {result.get('message', 'No message')}")
+            
+            if workflow_results['warnings']:
+                logger.info(f"\nWARNING:  WARNINGS ({len(workflow_results['warnings'])}):")
+                for warning in workflow_results['warnings']:
+                    logger.info(f"   - {warning}")
+            
+            if workflow_results['errors']:
+                logger.info(f"\nERROR: ERRORS ({len(workflow_results['errors'])}):")
+                for error in workflow_results['errors']:
+                    logger.info(f"   - {error}")
+            
+            return workflow_results
+            
+        except Exception as e:
+            error_msg = f"Critical workflow error: {e}"
+            logger.error(error_msg)
+            workflow_results['errors'].append(error_msg)
+            workflow_results['overall_success'] = False
+            return workflow_results
     
     logger.info("Termination automation completed")
 

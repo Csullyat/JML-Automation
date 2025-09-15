@@ -228,29 +228,29 @@ class SingleAppTerminator:
                 # Step 1: Convert mailbox to shared
                 try:
                     microsoft_service.convert_mailbox_to_shared(user_email)
-                    results.append("✅ Mailbox converted to shared")
+                    results.append("SUCCESS: Mailbox converted to shared")
                 except Exception as e:
-                    results.append(f"❌ Mailbox conversion failed: {e}")
+                    results.append(f"ERROR: Mailbox conversion failed: {e}")
                 
                 # Step 2: Add manager as delegate
                 try:
                     success = microsoft_service.delegate_mailbox_access(user_email, transfer_email)
                     if success:
-                        results.append(f"✅ Delegated mailbox access to {transfer_email}")
+                        results.append(f"SUCCESS: Delegated mailbox access to {transfer_email}")
                     else:
-                        results.append(f"❌ Failed to delegate mailbox access to {transfer_email}")
+                        results.append(f"ERROR: Failed to delegate mailbox access to {transfer_email}")
                 except Exception as e:
-                    results.append(f"❌ Delegation failed: {e}")
+                    results.append(f"ERROR: Delegation failed: {e}")
                 
                 # Step 3: Remove M365 licenses
                 try:
                     license_result = microsoft_service.remove_user_licenses(user_email)
                     if license_result.get("success"):
-                        results.append(f"✅ Removed M365 licenses")
+                        results.append(f"SUCCESS: Removed M365 licenses")
                     else:
-                        results.append(f"❌ License removal failed: {license_result.get('error', 'Unknown error')}")
+                        results.append(f"ERROR: License removal failed: {license_result.get('error', 'Unknown error')}")
                 except Exception as e:
-                    results.append(f"❌ License removal failed: {e}")
+                    results.append(f"ERROR: License removal failed: {e}")
                 
                 return "; ".join(results)
                 
@@ -272,21 +272,21 @@ class SingleAppTerminator:
                 try:
                     transfer_success = google_service.transfer_user_data(user_email, transfer_email)
                     if transfer_success:
-                        results.append("✅ Google Drive data transfer initiated")
+                        results.append("SUCCESS: Google Drive data transfer initiated")
                     else:
-                        results.append("❌ Drive transfer failed")
+                        results.append("ERROR: Drive transfer failed")
                 except Exception as e:
-                    results.append(f"❌ Drive transfer failed: {e}")
+                    results.append(f"ERROR: Drive transfer failed: {e}")
                 
                 # Step 2: Delete user from Google Admin
                 try:
                     delete_success = google_service.delete_user(user_email)
                     if delete_success:
-                        results.append("✅ User deleted from Google Admin")
+                        results.append("SUCCESS: User deleted from Google Admin")
                     else:
-                        results.append("❌ Failed to delete user from Google Admin")
+                        results.append("ERROR: Failed to delete user from Google Admin")
                 except Exception as e:
-                    results.append(f"❌ User deletion failed: {e}")
+                    results.append(f"ERROR: User deletion failed: {e}")
                 
                 return "; ".join(results)
                 
@@ -307,21 +307,21 @@ class SingleAppTerminator:
                 try:
                     transfer_success = zoom_service.transfer_user_data(user_email, transfer_email)
                     if transfer_success:
-                        results.append("✅ Zoom data transfer initiated (recordings, webinars, meetings)")
+                        results.append("SUCCESS: Zoom data transfer initiated (recordings, webinars, meetings)")
                     else:
-                        results.append("❌ Zoom data transfer failed")
+                        results.append("ERROR: Zoom data transfer failed")
                 except Exception as e:
-                    results.append(f"❌ Zoom data transfer failed: {e}")
+                    results.append(f"ERROR: Zoom data transfer failed: {e}")
                 
                 # Step 2: Delete user from Zoom (frees license)
                 try:
                     delete_success = zoom_service.delete_user(user_email, transfer_email)
                     if delete_success:
-                        results.append("✅ User deleted from Zoom (license freed)")
+                        results.append("SUCCESS: User deleted from Zoom (license freed)")
                     else:
-                        results.append("❌ Failed to delete user from Zoom")
+                        results.append("ERROR: Failed to delete user from Zoom")
                 except Exception as e:
-                    results.append(f"❌ User deletion failed: {e}")
+                    results.append(f"ERROR: User deletion failed: {e}")
                 
                 return "; ".join(results)
                 
@@ -339,10 +339,10 @@ class SingleAppTerminator:
                 user_domo_groups = self.okta.get_user_groups_by_names(user_id, domo_groups)
                 
                 if not user_domo_groups:
-                    return "✅ User not in Domo groups, skipping termination"
+                    return "SUCCESS: User not in Domo groups, skipping termination"
                 
                 results = []
-                results.append(f"🔍 User found in groups: {', '.join(user_domo_groups)}")
+                results.append(f"INFO: User found in groups: {', '.join(user_domo_groups)}")
                 
                 # Step 2: Delete from Domo (if user was in groups)
                 try:
@@ -353,14 +353,14 @@ class SingleAppTerminator:
                     if termination_result.get("success"):
                         verified = termination_result.get("verified", False)
                         if verified:
-                            results.append("✅ User deleted from Domo and verified")
+                            results.append("SUCCESS: User deleted from Domo and verified")
                         else:
-                            results.append("⚠️ User deleted from Domo but verification failed")
+                            results.append("WARNING: User deleted from Domo but verification failed")
                     else:
-                        results.append(f"❌ Domo deletion failed: {termination_result.get('message', 'Unknown error')}")
+                        results.append(f"ERROR: Domo deletion failed: {termination_result.get('message', 'Unknown error')}")
                         
                 except Exception as e:
-                    results.append(f"❌ Domo deletion failed: {e}")
+                    results.append(f"ERROR: Domo deletion failed: {e}")
                 
                 return "; ".join(results)
                 
@@ -378,10 +378,10 @@ class SingleAppTerminator:
                 user_lucid_groups = self.okta.get_user_groups_by_names(user_id, lucid_groups)
                 
                 if not user_lucid_groups:
-                    return "✅ User not in Lucidchart groups, skipping termination"
+                    return "SUCCESS: User not in Lucidchart groups, skipping termination"
                 
                 results = []
-                results.append(f"🔍 User found in groups: {', '.join(user_lucid_groups)}")
+                results.append(f" User found in groups: {', '.join(user_lucid_groups)}")
                 
                 # Step 2: Delete from Lucidchart (if user was in groups)
                 try:
@@ -392,14 +392,14 @@ class SingleAppTerminator:
                     if termination_result.get("success"):
                         verified = termination_result.get("verified", False)
                         if verified:
-                            results.append("✅ User deleted from Lucidchart and verified")
+                            results.append("SUCCESS: User deleted from Lucidchart and verified")
                         else:
-                            results.append("⚠️ User deleted from Lucidchart but verification failed")
+                            results.append("WARNING: User deleted from Lucidchart but verification failed")
                     else:
-                        results.append(f"❌ Lucidchart deletion failed: {termination_result.get('message', 'Unknown error')}")
+                        results.append(f"ERROR: Lucidchart deletion failed: {termination_result.get('message', 'Unknown error')}")
                         
                 except Exception as e:
-                    results.append(f"❌ Lucidchart deletion failed: {e}")
+                    results.append(f"ERROR: Lucidchart deletion failed: {e}")
                 
                 return "; ".join(results)
                 

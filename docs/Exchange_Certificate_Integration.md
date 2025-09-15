@@ -50,11 +50,11 @@ ms_service.delegate_mailbox_access("user@company.com", "manager@company.com")
 
 ## Security Features
 
-- ✅ **Certificate stored in 1Password**: Not in source code or local files
-- ✅ **Automatic retrieval**: Downloaded only when needed
-- ✅ **Local caching**: Certificate cached locally in `docs/certs/` (gitignored)
-- ✅ **Thumbprint caching**: Thumbprint cached in memory to avoid repeated 1Password calls
-- ✅ **Windows Certificate Store**: Certificate installed to user's personal store for PowerShell access
+- SUCCESS: **Certificate stored in 1Password**: Not in source code or local files
+- SUCCESS: **Automatic retrieval**: Downloaded only when needed
+- SUCCESS: **Local caching**: Certificate cached locally in `docs/certs/` (gitignored)
+- SUCCESS: **Thumbprint caching**: Thumbprint cached in memory to avoid repeated 1Password calls
+- SUCCESS: **Windows Certificate Store**: Certificate installed to user's personal store for PowerShell access
 
 ## Maintenance
 

@@ -71,19 +71,28 @@ class LucidchartService(BaseService):
             logger.error(f"Unexpected error in Lucidchart API request: {e}")
             return None
     
-    def test_connectivity(self) -> bool:
+    def test_connectivity(self) -> Dict:
         """Test connection to Lucidchart SCIM API."""
         try:
             response = self._make_scim_request("GET", "/Users", params={"count": 1})
             if response is not None:
                 logger.info("Lucidchart SCIM API connectivity successful")
-                return True
+                return {
+                    'success': True,
+                    'message': 'Lucidchart SCIM API connectivity successful'
+                }
             else:
                 logger.error("Lucidchart SCIM API connectivity failed")
-                return False
+                return {
+                    'success': False,
+                    'error': 'SCIM API request failed'
+                }
         except Exception as e:
             logger.error(f"Lucidchart connectivity test failed: {e}")
-            return False
+            return {
+                'success': False,
+                'error': str(e)
+            }
     
     def find_user_by_email(self, email: str) -> Optional[Dict]:
         """Find Lucidchart user by email using SCIM filter."""

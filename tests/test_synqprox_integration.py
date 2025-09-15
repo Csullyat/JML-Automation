@@ -19,7 +19,7 @@ def test_synqprox_integration():
     
     # Check that SynqProx service is initialized
     assert hasattr(workflow, 'synqprox'), "SynqProx service not found in workflow"
-    print("✅ SynqProx service properly initialized in workflow")
+    print("SUCCESS: SynqProx service properly initialized in workflow")
     
     # Test connectivity (this will fail on a VM without chrome, but we can see the structure)
     try:
@@ -27,23 +27,23 @@ def test_synqprox_integration():
         print(f"SynqProx connectivity test result: {connectivity_result}")
     except Exception as e:
         print(f"Expected connectivity test failure (no Chrome): {e}")
-        print("✅ SynqProx service structure is correct")
+        print("SUCCESS: SynqProx service structure is correct")
     
-    print("\n🔧 SYNQ PROX INTEGRATION SUMMARY:")
-    print("✅ Service properly imported")
-    print("✅ Service initialized in workflow")
-    print("✅ Integration added to Okta termination process")
-    print("✅ Unconditional termination (no Okta group checking)")
-    print("✅ Headless-only mode (browser mode removed)")
-    print("✅ Optimized coordinates for headless deployment")
+    print("\n SYNQ PROX INTEGRATION SUMMARY:")
+    print("SUCCESS: Service properly imported")
+    print("SUCCESS: Service initialized in workflow")
+    print("SUCCESS: Integration added to Okta termination process")
+    print("SUCCESS: Unconditional termination (no Okta group checking)")
+    print("SUCCESS: Headless-only mode (browser mode removed)")
+    print("SUCCESS: Optimized coordinates for headless deployment")
     
-    print("\n📍 INTEGRATION LOCATION:")
+    print("\nINTEGRATION LOCATION:")
     print("• Added to execute_okta_termination() method")
     print("• Runs after group removal, before user deactivation")
     print("• Failure is non-critical (logged as warning)")
     print("• Executes for every termination ticket")
     
-    print("\n🚀 READY FOR PRODUCTION:")
+    print("\n READY FOR PRODUCTION:")
     print("• SYNQ Prox will run automatically in every termination")
     print("• No manual intervention required")
     print("• Coordinates optimized for headless VM deployment")

@@ -31,25 +31,25 @@ def test_synq_delete_adjusted_coordinates():
         ticket_data = solarwinds_service.fetch_ticket("64570")
         
         if not ticket_data:
-            print("❌ Failed to fetch ticket 64570")
+            print("ERROR: Failed to fetch ticket 64570")
             return False
         
-        print(f"✅ Successfully fetched ticket 64570: {ticket_data.get('subject', 'No subject')}")
+        print(f"SUCCESS: Successfully fetched ticket 64570: {ticket_data.get('subject', 'No subject')}")
         
         # Extract the termination email
         termination_email = extract_user_email_from_ticket(ticket_data)
         
         if not termination_email:
-            print("❌ Could not extract termination email from ticket 64570")
+            print("ERROR: Could not extract termination email from ticket 64570")
             return False
         
-        print(f"✅ Extracted termination email: {termination_email}")
+        print(f"SUCCESS: Extracted termination email: {termination_email}")
         
         # Initialize SYNQ Prox service with adjusted coordinates
         synq_service = SynqProxService()
         
         # OVERRIDE the coordinates with adjusted values (20 pixels UP)
-        print("🔧 USING ADJUSTED COORDINATES FOR HEADLESS MODE:")
+        print(" USING ADJUSTED COORDINATES FOR HEADLESS MODE:")
         print(f"   Users button: (82, 213) - was (82, 233)")
         print(f"   Search field: (840, 115) - was (840, 135)")  
         print(f"   Delete button: (745, 230) - was (745, 250)")
@@ -61,16 +61,16 @@ def test_synq_delete_adjusted_coordinates():
         result = synq_service.execute_termination(termination_email)
         
         if result.get('success'):
-            print(f"✅ Successfully processed SYNQ Prox deletion for: {termination_email}")
+            print(f"SUCCESS: Successfully processed SYNQ Prox deletion for: {termination_email}")
             print(f"   Message: {result.get('message')}")
             return True
         else:
-            print(f"❌ Failed to delete user from SYNQ Prox: {termination_email}")
+            print(f"ERROR: Failed to delete user from SYNQ Prox: {termination_email}")
             print(f"   Error: {result.get('error', 'Unknown error')}")
             return False
             
     except Exception as e:
-        print(f"❌ Error during test: {e}")
+        print(f"ERROR: Error during test: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -78,7 +78,7 @@ def test_synq_delete_adjusted_coordinates():
 if __name__ == "__main__":
     success = test_synq_delete_adjusted_coordinates()
     if success:
-        print("\n🎉 Adjusted coordinates test completed successfully!")
+        print("\n Adjusted coordinates test completed successfully!")
     else:
-        print("\n💥 Adjusted coordinates test failed!")
+        print("\nFAILED: Adjusted coordinates test failed!")
         sys.exit(1)

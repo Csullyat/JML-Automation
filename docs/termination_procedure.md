@@ -161,7 +161,7 @@ The following are **not managed by IT** and require action by HR or other depart
 - Incident IO, New Relic (R&D)  
 - KnowBe4 (manual removal in app)  
 
-⚠️ **HR must notify Compliance immediately if terminated employee had CJIS clearance** (removal within 24 hours).
+WARNING: **HR must notify Compliance immediately if terminated employee had CJIS clearance** (removal within 24 hours).
 
 ---
 

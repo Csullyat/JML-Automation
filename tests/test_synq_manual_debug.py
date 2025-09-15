@@ -21,10 +21,10 @@ def manual_debug():
         # Login
         print("Logging in...")
         if synq_service._login():
-            print("✅ Login successful!")
+            print("SUCCESS: Login successful!")
             
             # Pause for manual inspection
-            print("\n🔍 Browser is now open and logged in.")
+            print("\n Browser is now open and logged in.")
             print("You can now manually:")
             print("1. Click around to see what elements are available")
             print("2. Open DevTools (F12) to inspect the page")
@@ -37,15 +37,15 @@ def manual_debug():
             # Try to navigate to users
             print("\nNow attempting automated navigation...")
             if synq_service._navigate_to_users():
-                print("✅ Navigation successful!")
+                print("SUCCESS: Navigation successful!")
             else:
-                print("❌ Navigation failed")
+                print("ERROR: Navigation failed")
                 
             # Another pause to see the result
             input("\nPress ENTER to close the browser...")
             
         else:
-            print("❌ Login failed")
+            print("ERROR: Login failed")
             
     except Exception as e:
         print(f"Error: {e}")

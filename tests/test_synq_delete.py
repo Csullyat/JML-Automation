@@ -34,12 +34,12 @@ def test_synq_delete():
         result = service.delete_user(test_email)
         
         if result:
-            print(f"✅ Successfully deleted user: {test_email}")
+            print(f"SUCCESS: Successfully deleted user: {test_email}")
         else:
-            print(f"❌ Failed to delete user: {test_email}")
+            print(f"ERROR: Failed to delete user: {test_email}")
             
     except Exception as e:
-        print(f"❌ Error during deletion test: {e}")
+        print(f"ERROR: Error during deletion test: {e}")
         import traceback
         traceback.print_exc()
 

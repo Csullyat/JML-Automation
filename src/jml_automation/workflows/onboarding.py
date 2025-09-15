@@ -206,8 +206,14 @@ def run(
     group_names = set(cfg.get("baseline", []))
 
     dept_map = (cfg.get("dept") or {})
-    if u.department in dept_map:
-        group_names.update(dept_map[u.department])
+    
+    # Map department names to config keys
+    department_key = u.department
+    if u.department == "AE - Account Executives":
+        department_key = "Sales"
+    
+    if department_key in dept_map:
+        group_names.update(dept_map[department_key])
 
     # Zoom license group
     zoom = cfg.get("zoom", {})

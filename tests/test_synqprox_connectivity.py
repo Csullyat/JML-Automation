@@ -20,12 +20,12 @@ def test_synqprox_connectivity():
     result = synq_service.test_connectivity()
     
     if result.get('success'):
-        print(f"✅ Connectivity test passed: {result.get('message')}")
+        print(f"SUCCESS: Connectivity test passed: {result.get('message')}")
         print(f"   URL: {result.get('url')}")
     else:
-        print(f"❌ Connectivity test failed: {result.get('error')}")
+        print(f"ERROR: Connectivity test failed: {result.get('error')}")
     
-    print("\n🔧 Service Configuration:")
+    print("\n Service Configuration:")
     print(f"   Base URL: {synq_service.base_url}")
     print(f"   Headless Mode: Yes (production ready)")
     print(f"   Optimized Coordinates: Yes")

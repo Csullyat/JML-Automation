@@ -71,11 +71,11 @@ def test_config() -> bool:
         else:
             print("⚠ SAMANAGE_TOKEN not found (check 1Password CLI)")
         
-        print("\n✅ Configuration test passed!")
+        print("\nSUCCESS: Configuration test passed!")
         return True
         
     except Exception as e:
-        print(f"\n❌ Configuration test failed: {e}")
+        print(f"\nERROR: Configuration test failed: {e}")
         return False
 
 
@@ -131,11 +131,11 @@ def test_extractor(config: Config) -> bool:
         except Exception as e:
             print(f"⚠ SolarWinds connection error: {e}")
         
-        print("\n✅ Extractor test completed!")
+        print("\nSUCCESS: Extractor test completed!")
         return True
         
     except Exception as e:
-        print(f"\n❌ Extractor test failed: {e}")
+        print(f"\nERROR: Extractor test failed: {e}")
         return False
 
 
@@ -192,9 +192,9 @@ def test_services(config: Config) -> Dict[str, bool]:
     total = len(results)
     
     if working == total:
-        print(f"\n✅ All {total} services tested successfully!")
+        print(f"\nSUCCESS: All {total} services tested successfully!")
     else:
-        print(f"\n⚠️ {working}/{total} services working")
+        print(f"\nWARNING: {working}/{total} services working")
     
     return results
 
@@ -211,12 +211,12 @@ def test_workflow(config: Config, skip_if_no_services: bool = True) -> bool:
         connections_ok = workflow._test_connections()
         
         if not connections_ok and skip_if_no_services:
-            print("\n⚠️ Skipping workflow run due to service connection issues")
+            print("\nWARNING: Skipping workflow run due to service connection issues")
             print("   (This is expected if tokens are not configured)")
             return True
         
         if connections_ok:
-            print("\n🚀 Running workflow (TEST MODE - will process 1 user max)...")
+            print("\n Running workflow (TEST MODE - will process 1 user max)...")
             print("-"*40)
             
             result = workflow.run()
@@ -229,11 +229,11 @@ def test_workflow(config: Config, skip_if_no_services: bool = True) -> bool:
             
             return result.get('success', False)
         else:
-            print("\n⚠️ Cannot run workflow - service connections failed")
+            print("\nWARNING: Cannot run workflow - service connections failed")
             return False
             
     except Exception as e:
-        print(f"\n❌ Workflow test failed: {e}")
+        print(f"\nERROR: Workflow test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -241,9 +241,9 @@ def test_workflow(config: Config, skip_if_no_services: bool = True) -> bool:
 
 def main():
     """Run all integration tests."""
-    print("\n" + "🔧"*30)
+    print("\n" + ""*30)
     print("  FILEVINE AUTOMATION INTEGRATION TEST")
-    print("🔧"*30)
+    print(""*30)
     
     start_time = datetime.now()
     
@@ -252,7 +252,7 @@ def main():
     
     # Test 1: Configuration
     if not test_config():
-        print("\n⚠️ Configuration issues detected. Please check your config files.")
+        print("\nWARNING: Configuration issues detected. Please check your config files.")
         all_tests_passed = False
         # Don't continue if config fails
         return
@@ -267,7 +267,7 @@ def main():
     # Test 3: Services
     service_results = test_services(config)
     if not all(service_results.values()):
-        print("\n⚠️ Some services are not working. Check your tokens/credentials.")
+        print("\nWARNING: Some services are not working. Check your tokens/credentials.")
         all_tests_passed = False
     
     # Test 4: Workflow (only if services are working)
@@ -276,7 +276,7 @@ def main():
             all_tests_passed = False
     else:
         print_header("Workflow Test")
-        print("⚠️ Skipping workflow test - services not fully configured")
+        print("WARNING: Skipping workflow test - services not fully configured")
     
     # Final Summary
     duration = datetime.now() - start_time
@@ -284,9 +284,9 @@ def main():
     print_header("INTEGRATION TEST COMPLETE")
     
     if all_tests_passed:
-        print("✅ All tests passed successfully!")
+        print("SUCCESS: All tests passed successfully!")
     else:
-        print("⚠️ Some tests failed or were skipped")
+        print("WARNING: Some tests failed or were skipped")
     
     print(f"\nTotal time: {duration}")
     
@@ -307,7 +307,7 @@ def main():
             print("   - SAMANAGE_TOKEN/SOLARWINDS_TOKEN")
     
     if all_tests_passed and all(service_results.values()):
-        print("✅ System is ready for production use!")
+        print("SUCCESS: System is ready for production use!")
         print("\nTo run onboarding:")
         print("  python -c \"from filevine.workflows.onboarding import run_onboarding; run_onboarding(test_mode=True)\"")
 

@@ -33,7 +33,7 @@ def terminate():
 @click.option("--dry-run/--no-dry-run", default=True, help="Dry run mode (default: True)")
 def onboard_run(ticket_id, dry_run):
     """Run onboarding for a specific ticket."""
-    click.echo(f"🚀 Running onboarding for ticket {ticket_id} (dry_run={dry_run})")
+    click.echo(f" Running onboarding for ticket {ticket_id} (dry_run={dry_run})")
     
     try:
         from jml_automation.workflows.onboarding import run
@@ -44,12 +44,12 @@ def onboard_run(ticket_id, dry_run):
             push_domo=False
         )
         if result == 0:
-            click.echo("✅ Onboarding completed successfully")
+            click.echo("SUCCESS: Onboarding completed successfully")
         else:
-            click.echo(f"❌ Onboarding failed with code {result}")
+            click.echo(f"ERROR: Onboarding failed with code {result}")
         return result
     except Exception as e:
-        click.echo(f"❌ Fatal error in onboarding: {e}")
+        click.echo(f"ERROR: Fatal error in onboarding: {e}")
         return 1
 
 # ========== TERMINATION COMMANDS ==========
@@ -65,14 +65,14 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
     
     # Validate input
     if not ticket_id and not user_email:
-        click.echo("❌ Error: Must provide either --ticket-id or --user-email")
+        click.echo("ERROR: Error: Must provide either --ticket-id or --user-email")
         sys.exit(1)
     
     # Parse phases if provided
     phase_list = None
     if phases:
         phase_list = [p.strip() for p in phases.split(',')]
-        click.echo(f"📋 Phases to execute: {', '.join(phase_list)}")
+        click.echo(f" Phases to execute: {', '.join(phase_list)}")
     
     try:
         from jml_automation.workflows.termination import TerminationWorkflow
@@ -80,13 +80,13 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
         workflow = TerminationWorkflow()
         
         if test_mode:
-            click.echo("🧪 TEST MODE: Multi-phase termination")
+            click.echo("TEST: TEST MODE: Multi-phase termination")
         else:
-            click.echo("🚀 PRODUCTION MODE: Multi-phase termination")
+            click.echo(" PRODUCTION MODE: Multi-phase termination")
         
         if user_email:
             # Direct user termination
-            click.echo(f"🚀 Running multi-phase termination for {user_email}")
+            click.echo(f" Running multi-phase termination for {user_email}")
             results = workflow.execute_multi_phase_termination(
                 user_email=user_email,
                 manager_email=manager_email,
@@ -95,14 +95,14 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
             )
             
             if results and results.get('overall_success'):
-                click.echo("✅ Termination completed successfully")
+                click.echo("SUCCESS: Termination completed successfully")
                 return 0
             else:
-                click.echo("⚠️ Termination completed with issues")
+                click.echo("WARNING: Termination completed with issues")
                 return 1
         else:
             # Ticket-based termination
-            click.echo(f"🚀 Running termination for ticket {ticket_id}")
+            click.echo(f" Running termination for ticket {ticket_id}")
             from jml_automation.workflows.termination import run
             result = run(
                 ticket_id=ticket_id,
@@ -111,14 +111,14 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
             )
             
             if result == 0:
-                click.echo("✅ Termination completed successfully")
+                click.echo("SUCCESS: Termination completed successfully")
                 return 0
             else:
-                click.echo("⚠️ Termination completed with issues")
+                click.echo("WARNING: Termination completed with issues")
                 return result
             
     except Exception as e:
-        click.echo(f"❌ Fatal error in termination: {e}")
+        click.echo(f"ERROR: Fatal error in termination: {e}")
         logger.error(f"Termination CLI error: {e}")
         return 1
 
@@ -127,7 +127,7 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
 @click.option("--manager-email", help="Email of manager for delegation")
 def terminate_test(user_email: str, manager_email: Optional[str]):
     """Test termination readiness for a specific user."""
-    click.echo(f"🧪 Running termination readiness test for {user_email}")
+    click.echo(f"TEST: Running termination readiness test for {user_email}")
     
     try:
         from jml_automation.workflows.termination import TerminationWorkflow
@@ -135,19 +135,19 @@ def terminate_test(user_email: str, manager_email: Optional[str]):
         workflow = TerminationWorkflow()
         results = workflow.test_termination(user_email, manager_email)
         
-        click.echo(f"\n🧪 TEST MODE RESULTS for {user_email}")
-        click.echo(f"Overall Ready: {'✅ YES' if results['overall_ready'] else '❌ NO'}")
+        click.echo(f"\nTEST: TEST MODE RESULTS for {user_email}")
+        click.echo(f"Overall Ready: {'SUCCESS: YES' if results['overall_ready'] else 'ERROR: NO'}")
         click.echo(f"\nWould Execute:")
         for action in results['would_execute']:
-            click.echo(f"  ✅ {action}")
+            click.echo(f"  SUCCESS: {action}")
         click.echo(f"\nPotential Issues:")
         for issue in results['potential_issues']:
-            click.echo(f"  ⚠️ {issue}")
+            click.echo(f"  WARNING: {issue}")
         
         sys.exit(0 if results['overall_ready'] else 1)
         
     except Exception as e:
-        click.echo(f"❌ Fatal error in test mode: {e}")
+        click.echo(f"ERROR: Fatal error in test mode: {e}")
         logger.error(f"Termination test error: {e}")
         sys.exit(1)
 
@@ -155,7 +155,7 @@ def terminate_test(user_email: str, manager_email: Optional[str]):
 @click.argument("ticket_id")
 def terminate_synqprox(ticket_id: str):
     """Test SYNQ Prox deletion for a specific ticket."""
-    click.echo(f"🧪 Testing SYNQ Prox deletion for ticket {ticket_id}")
+    click.echo(f"TEST: Testing SYNQ Prox deletion for ticket {ticket_id}")
     
     try:
         # Fetch the ticket to get user email
@@ -167,31 +167,31 @@ def terminate_synqprox(ticket_id: str):
         ticket = solarwinds.fetch_ticket(ticket_id)
         
         if not ticket:
-            click.echo(f"❌ Ticket {ticket_id} not found")
+            click.echo(f"ERROR: Ticket {ticket_id} not found")
             sys.exit(1)
         
         user_email = extract_user_email_from_ticket(ticket)
         if not user_email:
-            click.echo(f"❌ Could not extract user email from ticket {ticket_id}")
+            click.echo(f"ERROR: Could not extract user email from ticket {ticket_id}")
             sys.exit(1)
         
-        click.echo(f"✅ Found user email: {user_email}")
-        click.echo(f"🚀 Testing SYNQ Prox deletion...")
+        click.echo(f"SUCCESS: Found user email: {user_email}")
+        click.echo(f" Testing SYNQ Prox deletion...")
         
         # Test SYNQ Prox deletion
         synqprox = SynqProxService()
         result = synqprox.execute_termination(user_email)
         
         if result:
-            click.echo(f"✅ SYNQ Prox deletion test successful for {user_email}")
-            click.echo("🎉 User deleted successfully from SYNQ Prox")
+            click.echo(f"SUCCESS: SYNQ Prox deletion test successful for {user_email}")
+            click.echo(" User deleted successfully from SYNQ Prox")
             sys.exit(0)
         else:
-            click.echo(f"❌ SYNQ Prox deletion test failed for {user_email}")
+            click.echo(f"ERROR: SYNQ Prox deletion test failed for {user_email}")
             sys.exit(1)
             
     except Exception as e:
-        click.echo(f"❌ Fatal error in SYNQ Prox test: {e}")
+        click.echo(f"ERROR: Fatal error in SYNQ Prox test: {e}")
         logger.error(f"SYNQ Prox test error: {e}")
         sys.exit(1)
 
@@ -201,9 +201,9 @@ def terminate_batch(test_mode: bool):
     """Process all termination tickets in batch mode."""
     
     if test_mode:
-        click.echo("🧪 TEST MODE: Processing first termination ticket only")
+        click.echo("TEST: TEST MODE: Processing first termination ticket only")
     else:
-        click.echo("🚀 PRODUCTION MODE: Processing all termination tickets")
+        click.echo(" PRODUCTION MODE: Processing all termination tickets")
         click.echo("Phases: Okta → Microsoft → Google → Zoom → Notifications")
     
     try:
@@ -226,32 +226,81 @@ def terminate_batch(test_mode: bool):
             ticket_id = ticket.get('ticket_id')
             
             if not user_email:
-                click.echo(f"❌ Could not extract user email from ticket {ticket_id}")
+                click.echo(f"ERROR: Could not extract user email from ticket {ticket_id}")
                 return 1
             
-            click.echo(f"🧪 TEST MODE: Processing multi-phase termination for {user_email}")
+            click.echo(f"TEST: TEST MODE: Processing multi-phase termination for {user_email}")
             results = workflow.execute_multi_phase_termination(user_email, manager_email, ticket_id=ticket_id)
             
             if results['overall_success']:
-                click.echo(f"✅ TEST termination successful for {user_email}")
-                click.echo("\n🧪 Test mode completed. Review logs and results.")
-                click.echo("💡 To run in production mode, use --production-mode")
+                click.echo(f"SUCCESS: TEST termination successful for {user_email}")
+                click.echo("\nTEST: Test mode completed. Review logs and results.")
+                click.echo(" To run in production mode, use --production-mode")
                 return 0
             else:
-                click.echo(f"⚠️ TEST termination had issues for {user_email}")
+                click.echo(f"WARNING: TEST termination had issues for {user_email}")
                 return 1
         else:
             # Production mode - process all tickets
             workflow.run_batch_processing()
-            click.echo("✅ Batch termination processing completed")
+            click.echo("SUCCESS: Batch termination processing completed")
             return 0
             
     except KeyboardInterrupt:
-        click.echo("\n⚠️ Termination automation interrupted by user")
-        return 1
+        click.echo("\nWARNING: Termination automation interrupted by user")
+        return 130
     except Exception as e:
-        click.echo(f"❌ Fatal error in batch processing: {e}")
+        click.echo(f"ERROR: Fatal error in batch termination: {e}")
         logger.error(f"Batch termination error: {e}")
+        return 1
+
+@terminate.command("ticket")
+@click.argument("ticket_id")
+@click.option("--dry-run/--execute", default=True, help="Dry run mode (default) vs actual execution")
+@click.option("--confirm", is_flag=True, help="Confirm actual termination (required for --execute)")
+def terminate_ticket(ticket_id: str, dry_run: bool, confirm: bool):
+    """Process a single termination ticket with dry-run or execution mode."""
+    
+    if not dry_run and not confirm:
+        click.echo("ERROR: Actual termination requires --confirm flag for safety!")
+        click.echo("Examples:")
+        click.echo(f"  jml terminate ticket {ticket_id}                    # Dry run (safe)")
+        click.echo(f"  jml terminate ticket {ticket_id} --execute --confirm # Actual termination")
+        return 1
+    
+    try:
+        from jml_automation.workflows.single_ticket import SingleTicketWorkflow
+        workflow = SingleTicketWorkflow()
+        
+        if dry_run:
+            # DRY RUN MODE
+            click.echo(f"DRY RUN: Testing connectivity for ticket {ticket_id}")
+            click.echo("(No actual termination will occur)")
+            
+            results = workflow.execute_single_ticket_dry_run(ticket_id)
+            workflow.print_dry_run_summary(results)
+            
+            return 0 if results['overall_success'] else 1
+        else:
+            # PRODUCTION MODE
+            click.echo(f"PRODUCTION: Executing termination for ticket {ticket_id}")
+            click.echo("WARNING: This will perform actual user termination!")
+            
+            # Double confirmation for safety
+            confirm_input = click.prompt("Type 'TERMINATE' to confirm", type=str)
+            if confirm_input != 'TERMINATE':
+                click.echo("Termination cancelled.")
+                return 1
+            
+            results = workflow.execute_single_ticket_production(ticket_id)
+            workflow.print_production_summary(results)
+            
+            return 0 if results['overall_success'] else 1
+        
+    except Exception as e:
+        mode = "dry run" if dry_run else "production termination"
+        click.echo(f"ERROR: Fatal error in {mode}: {e}")
+        logger.error(f"Single ticket {mode} error: {e}")
         return 1
 
 if __name__ == "__main__":

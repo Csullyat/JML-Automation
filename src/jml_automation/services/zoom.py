@@ -567,7 +567,7 @@ class ZoomTerminationManager:
     def _comprehensive_license_removal(self, user_email: str, user_id: str = None) -> bool:
         """Comprehensive license removal and user deactivation when deletion fails."""
         try:
-            logger.info(f"🎯 COMPREHENSIVE LICENSE REMOVAL for {user_email}")
+            logger.info(f" COMPREHENSIVE LICENSE REMOVAL for {user_email}")
             
             success_count = 0
             total_attempts = 0
@@ -578,10 +578,10 @@ class ZoomTerminationManager:
             try:
                 deactivate_data = {'status': 'inactive'}
                 self._make_api_request('PATCH', f'/users/{user_id or user_email}', deactivate_data)
-                logger.info(f"✅ User deactivated successfully: {user_email}")
+                logger.info(f"SUCCESS: User deactivated successfully: {user_email}")
                 success_count += 1
             except Exception as e:
-                logger.warning(f"❌ Deactivation failed: {e}")
+                logger.warning(f"ERROR: Deactivation failed: {e}")
             
             # Method 2: Downgrade to Basic (free) license
             logger.info("LICENSE METHOD 2: Downgrading to Basic license")
@@ -589,10 +589,10 @@ class ZoomTerminationManager:
             try:
                 license_data = {'type': 1}  # 1 = Basic (free)
                 self._make_api_request('PATCH', f'/users/{user_id or user_email}', license_data)
-                logger.info(f"✅ User downgraded to Basic license: {user_email}")
+                logger.info(f"SUCCESS: User downgraded to Basic license: {user_email}")
                 success_count += 1
             except Exception as e:
-                logger.warning(f"❌ License downgrade failed: {e}")
+                logger.warning(f"ERROR: License downgrade failed: {e}")
             
             # Method 3: Remove from all groups/roles
             logger.info("LICENSE METHOD 3: Removing user privileges and roles")
@@ -603,10 +603,10 @@ class ZoomTerminationManager:
                     'privileges': []   # Remove all privileges
                 }
                 self._make_api_request('PATCH', f'/users/{user_id or user_email}', role_data)
-                logger.info(f"✅ User privileges removed: {user_email}")
+                logger.info(f"SUCCESS: User privileges removed: {user_email}")
                 success_count += 1
             except Exception as e:
-                logger.warning(f"❌ Privilege removal failed: {e}")
+                logger.warning(f"ERROR: Privilege removal failed: {e}")
             
             # Method 4: Set user as custodian (minimal permissions)
             logger.info("LICENSE METHOD 4: Converting to custodian status")
@@ -619,10 +619,10 @@ class ZoomTerminationManager:
                     'location': 'TERMINATED'
                 }
                 self._make_api_request('PATCH', f'/users/{user_id or user_email}', custodian_data)
-                logger.info(f"✅ User converted to custodian: {user_email}")
+                logger.info(f"SUCCESS: User converted to custodian: {user_email}")
                 success_count += 1
             except Exception as e:
-                logger.warning(f"❌ Custodian conversion failed: {e}")
+                logger.warning(f"ERROR: Custodian conversion failed: {e}")
             
             # Method 5: Remove personal meeting ID
             logger.info("LICENSE METHOD 5: Removing personal meeting room")
@@ -630,10 +630,10 @@ class ZoomTerminationManager:
             try:
                 pmi_data = {'use_pmi': False}
                 self._make_api_request('PATCH', f'/users/{user_id or user_email}/settings', pmi_data)
-                logger.info(f"✅ Personal meeting room removed: {user_email}")
+                logger.info(f"SUCCESS: Personal meeting room removed: {user_email}")
                 success_count += 1
             except Exception as e:
-                logger.warning(f"❌ PMI removal failed: {e}")
+                logger.warning(f"ERROR: PMI removal failed: {e}")
             
             # Method 6: Disable all user features
             logger.info("LICENSE METHOD 6: Disabling all user features")
@@ -649,10 +649,10 @@ class ZoomTerminationManager:
                     }
                 }
                 self._make_api_request('PATCH', f'/users/{user_id or user_email}/settings', feature_data)
-                logger.info(f"✅ User features disabled: {user_email}")
+                logger.info(f"SUCCESS: User features disabled: {user_email}")
                 success_count += 1
             except Exception as e:
-                logger.warning(f"❌ Feature disabling failed: {e}")
+                logger.warning(f"ERROR: Feature disabling failed: {e}")
             
             # Method 7: Update user profile to indicate termination
             logger.info("LICENSE METHOD 7: Marking profile as terminated")
@@ -666,10 +666,10 @@ class ZoomTerminationManager:
                     'location': 'TERMINATED'
                 }
                 self._make_api_request('PATCH', f'/users/{user_id or user_email}', profile_data)
-                logger.info(f"✅ Profile marked as terminated: {user_email}")
+                logger.info(f"SUCCESS: Profile marked as terminated: {user_email}")
                 success_count += 1
             except Exception as e:
-                logger.warning(f"❌ Profile update failed: {e}")
+                logger.warning(f"ERROR: Profile update failed: {e}")
             
             # Method 8: Try to remove from organization (if possible)
             logger.info("LICENSE METHOD 8: Attempting organization removal")
@@ -677,26 +677,26 @@ class ZoomTerminationManager:
             try:
                 org_data = {'vanity_name': '', 'company': 'TERMINATED'}
                 self._make_api_request('PATCH', f'/users/{user_id or user_email}', org_data)
-                logger.info(f"✅ Organization details cleared: {user_email}")
+                logger.info(f"SUCCESS: Organization details cleared: {user_email}")
                 success_count += 1
             except Exception as e:
-                logger.warning(f"❌ Organization removal failed: {e}")
+                logger.warning(f"ERROR: Organization removal failed: {e}")
             
             # Summary
             success_rate = (success_count / total_attempts) * 100
-            logger.info(f"📊 LICENSE REMOVAL SUMMARY:")
-            logger.info(f"   ✅ Successful operations: {success_count}/{total_attempts} ({success_rate:.1f}%)")
+            logger.info(f" LICENSE REMOVAL SUMMARY:")
+            logger.info(f"   SUCCESS: Successful operations: {success_count}/{total_attempts} ({success_rate:.1f}%)")
             
             if success_count >= 3:
-                logger.info(f"🎉 LICENSE SUCCESSFULLY FREED for {user_email}")
+                logger.info(f" LICENSE SUCCESSFULLY FREED for {user_email}")
                 logger.info(f"   User is deactivated and consuming minimal/no license resources")
                 return True
             elif success_count >= 1:
-                logger.warning(f"⚠️ PARTIAL LICENSE REMOVAL for {user_email}")
+                logger.warning(f"WARNING: PARTIAL LICENSE REMOVAL for {user_email}")
                 logger.warning(f"   Some operations succeeded - license usage reduced")
                 return True
             else:
-                logger.error(f"❌ LICENSE REMOVAL FAILED for {user_email}")
+                logger.error(f"ERROR: LICENSE REMOVAL FAILED for {user_email}")
                 logger.error(f"   Manual intervention required - user may still consume license")
                 return False
                 
@@ -792,7 +792,7 @@ class ZoomTermination:
         Returns:
             Dict with termination results
         """
-        logger.info(f"📹 Starting Zoom termination for {user_email}")
+        logger.info(f" Starting Zoom termination for {user_email}")
         
         start_time = datetime.now()
         actions_completed = []
@@ -838,14 +838,14 @@ class ZoomTermination:
             }
             
             if success:
-                logger.info(f"✅ Zoom termination completed successfully for {user_email} in {duration:.1f}s")
+                logger.info(f"SUCCESS: Zoom termination completed successfully for {user_email} in {duration:.1f}s")
             else:
-                logger.warning(f"⚠️ Zoom termination completed with issues for {user_email} in {duration:.1f}s")
+                logger.warning(f"WARNING: Zoom termination completed with issues for {user_email} in {duration:.1f}s")
             
             return final_result
             
         except Exception as e:
-            logger.error(f"❌ Fatal error during Zoom termination for {user_email}: {e}")
+            logger.error(f"ERROR: Fatal error during Zoom termination for {user_email}: {e}")
             
             return {
                 'success': False,

@@ -118,4 +118,4 @@ All information is pulled from the onboarding ticket in SolarWinds.
 
 ---
 
-✅ **At this point, the new user account is fully provisioned in Okta.**
+SUCCESS: **At this point, the new user account is fully provisioned in Okta.**
