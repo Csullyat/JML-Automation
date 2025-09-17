@@ -754,6 +754,28 @@ class ZoomTerminationManager:
         except Exception as e:
             logger.error(f"Error in Zoom termination for {user_email}: {e}")
             return False
+    
+    def test_connectivity(self) -> Dict:
+        """Test Zoom API connectivity."""
+        try:
+            # Basic connectivity test - try to get a token
+            token = self._get_cached_or_new_token()
+            if token:
+                return {
+                    'success': True,
+                    'message': 'Zoom API token obtained successfully'
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'Failed to obtain Zoom API token'
+                }
+                    
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"Zoom connectivity test failed: {str(e)}"
+            }
 
 def test_zoom_termination():
     """Test function for Zoom termination."""

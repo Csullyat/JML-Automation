@@ -450,6 +450,56 @@ class Config:
             'password': self._get_from_onepassword(paths.get('synqprox_password', "op://IT/synqprox-admin/password"))
         }
 
+    def get_workato_credentials_dict(self) -> Dict[str, Optional[str]]:
+        """Get Workato API credentials from 1Password."""
+        paths = self.settings.get('onepassword', {}).get('paths', {})
+        return {
+            'credential': self._get_from_onepassword(paths.get('workato_api_key', "op://IT/Workato API Key/credential"))
+        }
+
+    def get_adobe_credentials_dict(self) -> Dict[str, Optional[str]]:
+        """Get Adobe API credentials from 1Password using service account."""
+        try:
+            # Try service account approach first
+            token = self.get_service_account_token_from_credential_manager()
+            if token:
+                try:
+                    from .utils.credential_manager import WindowsCredentialManager
+                    cred_manager = WindowsCredentialManager()
+                    adobe_creds = cred_manager.get_adobe_credentials()
+                    
+                    if adobe_creds:
+                        logger.info("Successfully retrieved Adobe credentials using service account")
+                        return {
+                            'client_id': adobe_creds.get('client_id'),
+                            'client_secret': adobe_creds.get('client_secret'),
+                            'org_id': adobe_creds.get('org_id'),
+                            'api_key': None  # Not needed with OAuth S2S
+                        }
+                    else:
+                        logger.warning("Service account available but Adobe credentials not found")
+                except Exception as e:
+                    logger.warning(f"Service account approach failed for Adobe: {e}")
+            
+            # Fallback to direct 1Password paths (old method)
+            logger.info("Falling back to direct 1Password paths for Adobe credentials")
+            paths = self.settings.get('onepassword', {}).get('paths', {})
+            return {
+                'client_id': self._get_from_onepassword(paths.get('adobe_client_id', "op://IT/Adobe Client ID/credential")),
+                'client_secret': self._get_from_onepassword(paths.get('adobe_client_secret', "op://IT/Adobe Client Secret/credential")),
+                'org_id': self._get_from_onepassword(paths.get('adobe_org_id', "op://IT/Adobe Org ID/credential")),
+                'api_key': self._get_from_onepassword(paths.get('adobe_api_key', "op://IT/Adobe API/credential"))
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting Adobe credentials: {e}")
+            return {
+                'client_id': None,
+                'client_secret': None, 
+                'org_id': None,
+                'api_key': None
+            }
+
     # ========== Configuration Validation ==========
     
     def get_configuration_summary(self) -> Dict[str, Any]:

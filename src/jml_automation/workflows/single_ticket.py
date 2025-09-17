@@ -13,6 +13,8 @@ from jml_automation.services.zoom import ZoomTerminationManager
 from jml_automation.services.domo import DomoService
 from jml_automation.services.lucid import LucidService
 from jml_automation.services.synqprox import SynqProxService
+from jml_automation.services.workato import WorkatoService
+from jml_automation.services.adobe import AdobeService
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +80,7 @@ class SingleTicketWorkflow:
             else:
                 results['warnings'].append("No manager email found")
             
-            # STEP 3-9: Test all system connectivity
+            # STEP 3-10: Test all system connectivity
             self._test_okta_connectivity(user_email, results)
             self._test_microsoft_connectivity(user_email, results)
             self._test_google_connectivity(user_email, results)
@@ -86,6 +88,8 @@ class SingleTicketWorkflow:
             self._test_domo_connectivity(results)
             self._test_lucid_connectivity(results)
             self._test_synqprox_connectivity(results)
+            self._test_adobe_connectivity(user_email, results)
+            self._test_workato_connectivity(user_email, results)
             
             # Determine overall success
             connected_systems = [name for name, data in results['systems_tested'].items() 
@@ -174,10 +178,41 @@ class SingleTicketWorkflow:
             results['summary'] = termination_result.get('summary', [])
             results['errors'].extend(termination_result.get('errors', []))
             results['warnings'].extend(termination_result.get('warnings', []))
-            results['overall_success'] = termination_result.get('overall_success', False)
+            
+            # STEP 4: Execute Adobe termination workflow
+            self.logger.info(f"STEP 4: ADOBE TERMINATION EXECUTION")
+            adobe_result = self._execute_adobe_termination(user_email)
+            
+            # Add Adobe result to system results
+            results['system_results']['adobe'] = adobe_result
+            if adobe_result.get('success'):
+                results['summary'].append(f"✅ Adobe: {adobe_result.get('message', 'Completed successfully')}")
+            else:
+                results['summary'].append(f"❌ Adobe: {adobe_result.get('error', 'Failed')}")
+                if adobe_result.get('error'):
+                    results['errors'].append(f"Adobe: {adobe_result['error']}")
+            
+            # STEP 5: Execute Workato termination workflow
+            self.logger.info(f"STEP 5: WORKATO TERMINATION EXECUTION")
+            workato_result = self._execute_workato_termination(user_email)
+            
+            # Add Workato result to system results
+            results['system_results']['workato'] = workato_result
+            if workato_result.get('success'):
+                results['summary'].append(f"✅ Workato: {workato_result.get('message', 'Completed successfully')}")
+            else:
+                results['summary'].append(f"❌ Workato: {workato_result.get('error', 'Failed')}")
+                if workato_result.get('error'):
+                    results['errors'].append(f"Workato: {workato_result['error']}")
+            
+            # Update overall success to include Adobe and Workato results
+            comprehensive_success = termination_result.get('overall_success', False)
+            adobe_success = adobe_result.get('success', False)
+            workato_success = workato_result.get('success', False)
+            results['overall_success'] = comprehensive_success and adobe_success and workato_success
             
             if results['overall_success']:
-                self.logger.info(f"SUCCESS: Comprehensive termination completed for {user_email}")
+                self.logger.info(f"SUCCESS: Complete termination (including Adobe and Workato) finished for {user_email}")
             else:
                 self.logger.warning(f"WARNING: Termination completed with issues for {user_email}")
             
@@ -299,6 +334,150 @@ class SingleTicketWorkflow:
         except Exception as e:
             results['systems_tested']['synqprox'] = {'status': 'failed', 'error': str(e)}
             results['errors'].append(f"SYNQ Prox connectivity: {e}")
+    
+    def _test_workato_connectivity(self, user_email: str, results: Dict) -> None:
+        """Test Workato connectivity and Okta group membership."""
+        self.logger.info("STEP 11: Testing Workato connectivity and Okta integration")
+        try:
+            workato = WorkatoService(dry_run=True)  # Always use dry run for connectivity test
+            
+            # Test basic connectivity
+            connectivity = workato.test_connection()
+            if not connectivity:
+                results['systems_tested']['workato'] = {'status': 'failed', 'error': 'API connection failed'}
+                results['errors'].append("Workato connectivity: API connection failed")
+                return
+            
+            # Check Okta group membership
+            group_membership = workato.check_okta_groups(user_email)
+            is_in_internal = group_membership.get("SSO-Workato", False)
+            is_in_customer = group_membership.get("SSO-Workato_Operations", False)
+            
+            # Determine status based on group membership
+            if is_in_internal or is_in_customer:
+                results['systems_tested']['workato'] = {
+                    'status': 'connected',
+                    'okta_groups': group_membership,
+                    'actions_needed': True,
+                    'message': f"User in groups: {[k for k, v in group_membership.items() if v]}"
+                }
+                self.logger.info(f"SUCCESS: Workato connected - User in groups: {group_membership}")
+            else:
+                results['systems_tested']['workato'] = {
+                    'status': 'connected',
+                    'okta_groups': group_membership,
+                    'actions_needed': False,
+                    'message': "User not in any Workato Okta groups - no action needed"
+                }
+                self.logger.info("SUCCESS: Workato connected - No actions needed (not in Workato groups)")
+                
+        except Exception as e:
+            results['systems_tested']['workato'] = {'status': 'failed', 'error': str(e)}
+            results['errors'].append(f"Workato connectivity: {e}")
+    
+    def _test_adobe_connectivity(self, user_email: str, results: Dict) -> None:
+        """Test Adobe connectivity and Okta group membership."""
+        self.logger.info("STEP 10: Testing Adobe connectivity and Okta integration")
+        try:
+            adobe = AdobeService(dry_run=True)  # Always use dry run for connectivity test
+            
+            # Test basic connectivity
+            connectivity = adobe.test_connection()
+            if not connectivity:
+                results['systems_tested']['adobe'] = {'status': 'failed', 'error': 'API connection failed'}
+                results['errors'].append("Adobe connectivity: API connection failed")
+                return
+            
+            # Check Okta group membership
+            group_membership = adobe.check_okta_groups(user_email)
+            is_in_adobe = group_membership.get("SSO-Adobe", False)
+            
+            # Determine status based on group membership
+            if is_in_adobe:
+                results['systems_tested']['adobe'] = {
+                    'status': 'connected',
+                    'okta_groups': group_membership,
+                    'actions_needed': True,
+                    'message': f"User in SSO-Adobe group - deletion needed"
+                }
+                self.logger.info(f"SUCCESS: Adobe connected - User in SSO-Adobe group")
+            else:
+                results['systems_tested']['adobe'] = {
+                    'status': 'connected',
+                    'okta_groups': group_membership,
+                    'actions_needed': False,
+                    'message': "User not in SSO-Adobe group - no action needed"
+                }
+                self.logger.info("SUCCESS: Adobe connected - No actions needed (not in Adobe group)")
+                
+        except Exception as e:
+            results['systems_tested']['adobe'] = {'status': 'failed', 'error': str(e)}
+            results['errors'].append(f"Adobe connectivity: {e}")
+    
+    def _execute_workato_termination(self, user_email: str) -> Dict:
+        """Execute Workato termination workflow in production mode."""
+        try:
+            self.logger.info(f"Executing Workato termination for {user_email}")
+            
+            # Initialize Workato service in production mode (dry_run=False)
+            workato = WorkatoService(dry_run=False)
+            
+            # Execute the complete termination workflow
+            success = workato.terminate_user(user_email)
+            
+            if success:
+                return {
+                    'success': True,
+                    'message': 'Workato termination completed successfully',
+                    'details': 'User removed from Workato workspaces and Okta groups as needed'
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'Workato termination workflow failed',
+                    'details': 'Check logs for specific error details'
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Error executing Workato termination: {e}")
+            return {
+                'success': False,
+                'error': f'Workato termination failed: {str(e)}',
+                'details': 'Exception occurred during Workato workflow execution'
+            }
+    
+    def _execute_adobe_termination(self, user_email: str) -> Dict:
+        """Execute Adobe termination workflow in production mode."""
+        try:
+            self.logger.info(f"Executing Adobe termination for {user_email}")
+            
+            # Initialize Adobe service in production mode (dry_run=False)
+            adobe = AdobeService(dry_run=False)
+            
+            # Execute the complete termination workflow
+            success = adobe.terminate_user(user_email)
+            
+            if success:
+                return {
+                    'success': True,
+                    'message': 'Adobe termination completed successfully',
+                    'details': 'User deleted from Adobe account and removed from SSO-Adobe group as needed'
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'Adobe termination workflow failed',
+                    'details': 'Check logs for specific error details'
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Error executing Adobe termination: {e}")
+            return {
+                'success': False,
+                'error': f'Adobe termination failed: {str(e)}',
+                'details': 'Exception occurred during Adobe workflow execution'
+            }
+    
     
     def _finalize_results(self, results: Dict) -> Dict:
         """Finalize results with timing and summary information."""

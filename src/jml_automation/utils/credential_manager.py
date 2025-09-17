@@ -126,3 +126,98 @@ class WindowsCredentialManager:
         except Exception as e:
             logger.error(f"Error using 1Password CLI: {e}")
             return None
+
+    def get_adobe_credentials(self) -> Optional[Dict[str, str]]:
+        """
+        Get Adobe API credentials from the service account token.
+        
+        Returns:
+            Dictionary with client_id, client_secret, org_id if found, None otherwise
+        """
+        try:
+            # Get the service account token
+            token = self.get_service_account_token()
+            if not token:
+                logger.error("No service account token found in Windows Credential Manager")
+                return None
+            
+            # Use the token with 1Password CLI to get Adobe credentials
+            return self._get_adobe_from_onepassword(token)
+            
+        except Exception as e:
+            logger.error(f"Error getting Adobe credentials: {e}")
+            return None
+
+    def _get_adobe_from_onepassword(self, token: str) -> Optional[Dict[str, str]]:
+        """
+        Use 1Password CLI with service account token to get Adobe credentials.
+        
+        Args:
+            token: The service account token
+            
+        Returns:
+            Dictionary with client_id, client_secret, org_id if successful, None otherwise
+        """
+        try:
+            import os
+            
+            # Set the service account token environment variable
+            env = os.environ.copy()
+            env['OP_SERVICE_ACCOUNT_TOKEN'] = token
+            
+            # Get Adobe OAuth credentials from separate 1Password items
+            credentials = {}
+            
+            # Get client_id
+            client_id_cmd = ["op", "read", "op://IT/Adobe Client ID/credential"]
+            client_id_result = subprocess.run(
+                client_id_cmd,
+                capture_output=True,
+                text=True,
+                env=env
+            )
+            
+            # Get client_secret  
+            client_secret_cmd = ["op", "read", "op://IT/Adobe Client Secret/credential"]
+            client_secret_result = subprocess.run(
+                client_secret_cmd,
+                capture_output=True,
+                text=True,
+                env=env
+            )
+            
+            # Get org_id
+            org_id_cmd = ["op", "read", "op://IT/Adobe Org ID/credential"]
+            org_id_result = subprocess.run(
+                org_id_cmd,
+                capture_output=True,
+                text=True,
+                env=env
+            )
+            
+            # Check if all commands succeeded
+            if (client_id_result.returncode == 0 and 
+                client_secret_result.returncode == 0 and 
+                org_id_result.returncode == 0):
+                
+                client_id = client_id_result.stdout.strip()
+                client_secret = client_secret_result.stdout.strip()
+                org_id = org_id_result.stdout.strip()
+                
+                if client_id and client_secret and org_id:
+                    logger.info("Successfully retrieved Adobe OAuth credentials from 1Password IT vault")
+                    return {
+                        'client_id': client_id,
+                        'client_secret': client_secret,
+                        'org_id': org_id
+                    }
+            
+            logger.error("Failed to retrieve Adobe credentials from 1Password")
+            logger.error(f"Client ID result: {client_id_result.stderr if client_id_result.returncode != 0 else 'OK'}")
+            logger.error(f"Client Secret result: {client_secret_result.stderr if client_secret_result.returncode != 0 else 'OK'}")
+            logger.error(f"Org ID result: {org_id_result.stderr if org_id_result.returncode != 0 else 'OK'}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error using 1Password CLI for Adobe: {e}")
+            return None

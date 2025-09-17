@@ -171,39 +171,7 @@ class TerminationWorkflow:
                 actions_failed.append(f"Failed to clear sessions: {e}")
                 logger.error(f"Failed to clear sessions - SECURITY RISK! {e}")
             
-            # Step 3: Remove from all groups
-            logger.info(f"Removing user from all groups...")
-            try:
-                result = self.okta.remove_from_all_groups(user_id)
-                if result['success']:
-                    actions_completed.append(f"Removed from {result['groups_removed']} groups")
-                    if result.get('groups_skipped', 0) > 0:
-                        logger.info(f"Skipped {result['groups_skipped']} system groups")
-                    logger.info(f"Removed from {result['groups_removed']} groups")
-                else:
-                    actions_failed.append("Failed to remove from some groups")
-                    if 'error' in result:
-                        logger.error(f"Group removal error: {result['error']}")
-            except Exception as e:
-                actions_failed.append(f"Failed to remove groups: {e}")
-                logger.error(f"Failed to remove from groups: {e}")
-            
-            # Step 3.5: SYNQ Prox Termination (Unconditional)
-            logger.info(f"Processing SYNQ Prox termination for {user_email}")
-            try:
-                synq_result = self.synqprox.execute_termination(user_email)
-                if synq_result.get('success'):
-                    actions_completed.append("SYNQ Prox user deleted")
-                    logger.info("SYNQ Prox termination completed successfully")
-                else:
-                    # SYNQ Prox failure is not critical - log as warning
-                    warnings.append(f"SYNQ Prox termination failed: {synq_result.get('message', 'Unknown error')}")
-                    logger.warning(f"SYNQ Prox termination failed: {synq_result.get('message', 'Unknown error')}")
-            except Exception as e:
-                warnings.append(f"SYNQ Prox termination error: {e}")
-                logger.warning(f"SYNQ Prox termination error: {e}")
-            
-            # Step 4: Deactivate user (if not already deactivated)
+            # Step 3: Deactivate user (if not already deactivated)
             if user_status not in ['DEPROVISIONED', 'SUSPENDED']:
                 logger.info(f"Deactivating user account")
                 try:
@@ -216,6 +184,9 @@ class TerminationWorkflow:
             else:
                 actions_completed.append(f"User already inactive (Status: {user_status})")
                 logger.info(f"User already inactive (Status: {user_status})")
+            
+            # NOTE: Group removal is now handled by individual apps after their specific tasks
+            # Each app (M365, Google, Zoom, etc.) will remove their own groups after completion
             
             # Determine overall success (sessions and deactivation are critical)
             critical_failures = [f for f in actions_failed if 'sessions' in f.lower() or 'deactivate' in f.lower()]
@@ -1061,13 +1032,13 @@ def main():
             logger.info("   - Finding user in Okta")
             logger.info("   - Clearing all sessions") 
             logger.info("   - Deactivating user")
-            logger.info("   - Removing from groups")
+            logger.info("   - (Group removal handled by individual apps)")
             
             okta_result = self.execute_okta_termination(user_email)
             workflow_results['system_results']['okta'] = okta_result
             
             if okta_result.get('success'):
-                workflow_results['summary'].append("SUCCESS: Okta: User deactivated, sessions cleared, groups removed")
+                workflow_results['summary'].append("SUCCESS: Okta: User deactivated and sessions cleared")
                 logger.info("SUCCESS: Okta termination completed successfully")
             else:
                 error_msg = f"ERROR: Okta termination failed: {okta_result.get('error', 'Unknown error')}"
