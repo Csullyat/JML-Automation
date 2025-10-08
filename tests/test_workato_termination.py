@@ -87,19 +87,19 @@ def test_workato_termination_workflow(ticket_id: str = "63000", dry_run: bool = 
         logger.info("-" * 60)
         
         if success:
-            logger.info(f"✅ Workato termination workflow completed successfully for {email}")
+            logger.info(f" Workato termination workflow completed successfully for {email}")
             
             if dry_run:
-                logger.info("🔍 DRY RUN MODE - No actual changes were made")
+                logger.info(" DRY RUN MODE - No actual changes were made")
                 logger.info("   • Okta group membership was checked (read-only)")
                 logger.info("   • Workato collaborator removal was simulated")
                 logger.info("   • Okta group removal was simulated")
             else:
-                logger.info("✅ PRODUCTION MODE - Changes were applied")
+                logger.info(" PRODUCTION MODE - Changes were applied")
                 logger.info("   • User removed from Workato workspaces (if applicable)")
                 logger.info("   • User removed from Okta groups (if applicable)")
         else:
-            logger.error(f"❌ Workato termination workflow failed for {email}")
+            logger.error(f" Workato termination workflow failed for {email}")
             return False
         
         # Step 5: Summary
@@ -148,7 +148,7 @@ def main():
     dry_run = not args.execute  # If --execute is specified, dry_run is False
     
     if not dry_run:
-        print("⚠️  WARNING: You are about to run in PRODUCTION mode!")
+        print("  WARNING: You are about to run in PRODUCTION mode!")
         print("   This will make actual changes to Workato and Okta.")
         response = input("   Are you sure you want to continue? (yes/no): ")
         if response.lower() not in ['yes', 'y']:

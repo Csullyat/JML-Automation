@@ -32,11 +32,11 @@ def test_alternative_actions():
     
     token_response = requests.post(token_url, data=token_data, timeout=30)
     if token_response.status_code != 200:
-        print(f"❌ Token failed: {token_response.status_code}")
+        print(f" Token failed: {token_response.status_code}")
         return
     
     token = token_response.json().get('access_token')
-    print(f"✅ OAuth token obtained with correct scopes")
+    print(f" OAuth token obtained with correct scopes")
     
     headers = {
         'Authorization': f'Bearer {token}',
@@ -125,22 +125,22 @@ def test_alternative_actions():
             )
             
             if response.status_code == 200:
-                print(f"   🎉 SUCCESS! Variant {i} worked!")
+                print(f"    SUCCESS! Variant {i} worked!")
                 print(f"   Response: {response.text}")
                 return True
             elif response.status_code == 400:
                 error_text = response.text[:100].replace('\n', ' ')
-                print(f"   ❌ 400: {error_text}...")
+                print(f"    400: {error_text}...")
             elif response.status_code == 429:
-                print(f"   ⏰ 429: Rate limited")
+                print(f"    429: Rate limited")
                 break  # Stop testing if rate limited
             else:
-                print(f"   ❓ {response.status_code}: {response.text[:50]}...")
+                print(f"    {response.status_code}: {response.text[:50]}...")
                 
         except Exception as e:
-            print(f"   💥 Error: {str(e)[:50]}...")
+            print(f"    Error: {str(e)[:50]}...")
     
-    print(f"\n📋 All variants failed. This strongly suggests:")
+    print(f"\n All variants failed. This strongly suggests:")
     print(f"   1. Adobe organization may have API restrictions")
     print(f"   2. User may have special status preventing deletion")
     print(f"   3. Additional API permissions may be required beyond User Management")
@@ -160,7 +160,7 @@ if __name__ == "__main__":
     success = test_alternative_actions()
     
     if not success:
-        print(f"\n💡 Recommendation: Contact Adobe support with:")
+        print(f"\n Recommendation: Contact Adobe support with:")
         print(f"   • Organization ID: E0702CB358BDC27A0A495C70@AdobeOrg")
         print(f"   • API endpoint: /v2/usermanagement/action/")
         print(f"   • Error: 'Expected a valid JSON payload'")

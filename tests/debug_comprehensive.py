@@ -36,11 +36,11 @@ def debug_adobe_api():
     
     token_response = requests.post(token_url, data=token_data, timeout=30)
     if token_response.status_code != 200:
-        print(f"❌ Token failed: {token_response.status_code} - {token_response.text}")
+        print(f" Token failed: {token_response.status_code} - {token_response.text}")
         return
     
     token = token_response.json().get('access_token')
-    print(f"✅ Token obtained: {token[:20]}...")
+    print(f" Token obtained: {token[:20]}...")
     
     # Test different header combinations
     headers_variants = [
@@ -125,21 +125,21 @@ def debug_adobe_api():
                     )
                     
                     if response.status_code == 200:
-                        print(f"🎉 SUCCESS! Status: {response.status_code}")
+                        print(f" SUCCESS! Status: {response.status_code}")
                         print(f"    Response: {response.text[:100]}")
                         return True
                     elif response.status_code == 400:
                         error_msg = response.text[:50].replace('\n', ' ')
-                        print(f"❌ 400 - {error_msg}...")
+                        print(f" 400 - {error_msg}...")
                     elif response.status_code == 404:
-                        print("❌ 404 - Not Found")
+                        print(" 404 - Not Found")
                     elif response.status_code == 403:
-                        print("❌ 403 - Forbidden")
+                        print(" 403 - Forbidden")
                     else:
-                        print(f"❓ {response.status_code}")
+                        print(f" {response.status_code}")
                         
                 except Exception as e:
-                    print(f"💥 Error: {str(e)[:30]}...")
+                    print(f" Error: {str(e)[:30]}...")
     
     print(f"\n3. None of the combinations worked. Let's check user lookup to confirm API access...")
     
@@ -159,7 +159,7 @@ def debug_adobe_api():
         # Check if user has admin roles that might prevent deletion
         admin_roles = user_info.get('adminRoles', [])
         if admin_roles:
-            print(f"⚠️  User has admin roles: {admin_roles}")
+            print(f"  User has admin roles: {admin_roles}")
             print("   This might prevent normal deletion!")
     
     return False

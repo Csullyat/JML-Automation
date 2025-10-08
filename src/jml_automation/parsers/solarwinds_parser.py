@@ -78,11 +78,31 @@ def _safe_build(model_cls, data: dict):
 
 # ---- Enhanced Email Extraction (from ticket_processor.py) ------------------
 
+def _extract_email_with_regex(text: str) -> Optional[str]:
+    """
+    Extract email address from text using regex.
+    Returns the first valid email found.
+    """
+    import re
+    
+    # Regex pattern for email addresses
+    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    
+    matches = re.findall(email_pattern, text)
+    if matches:
+        # Return the first match (most likely the correct email)
+        return matches[0]
+    
+    return None
+
 def extract_email_from_field(field_value: Union[str, Dict], field_name: str = "") -> Optional[str]:
     """
     Extract email from various field formats.
     Handles both string values and nested user objects.
+    Prioritizes actual email addresses over name-to-email conversion.
     """
+    import re
+    
     try:
         # Handle nested user objects (from custom_fields_values)
         if isinstance(field_value, dict):
@@ -93,17 +113,28 @@ def extract_email_from_field(field_value: Union[str, Dict], field_name: str = ""
                     return _norm_email(email)
             # Check the value field
             value = field_value.get('value')
-            if value and '@' in str(value):
-                return _norm_email(str(value))
-            field_value = value  # Continue processing as string
+            if value:
+                # First try to extract actual email from the value
+                extracted_email = _extract_email_with_regex(str(value))
+                if extracted_email:
+                    return _norm_email(extracted_email)
+                field_value = str(value)  # Continue processing as string
+            else:
+                return None
         
         if not field_value:
             return None
             
         field_str = str(field_value).strip()
         
-        # Direct email format
-        if '@' in field_str:
+        # PRIORITY 1: Look for actual email addresses in the text using regex
+        extracted_email = _extract_email_with_regex(field_str)
+        if extracted_email:
+            log.info(f"Extracted email from {field_name}: '{extracted_email}' from text: '{field_str}'")
+            return _norm_email(extracted_email)
+        
+        # PRIORITY 2: Simple @ check for direct email format
+        if '@' in field_str and '.' in field_str:
             return _norm_email(field_str)
         
         # Employee ID format (all digits)

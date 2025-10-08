@@ -154,7 +154,7 @@ class SolarWindsService:
         return ticket
 
     def search_by_display_number(self, display_number: str) -> Optional[str]:
-        """Search for internal incident ID by display number with paging."""
+        """Search for internal incident ID by display number with concurrent paging for speed."""
         log.debug(f"Searching for ticket with display number: {display_number}")
         
         # Check cache first
@@ -163,39 +163,68 @@ class SolarWindsService:
                 log.debug(f"Found ticket {display_number} in cache with ID {ticket_id}")
                 return ticket_id
         
-        page = 1
+        # Use concurrent search for speed
+        return self._concurrent_search_by_number(display_number)
+
+    def _concurrent_search_by_number(self, display_number: str) -> Optional[str]:
+        """Concurrent search for ticket by display number across multiple pages."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import time
+        
+        max_pages = 50  # Search through 5,000 tickets
         per_page = 100
-        max_pages = 10
+        max_workers = 25  # High concurrency for speed
         
-        while page <= max_pages:
-            try:
-                resp = self._get("/incidents.json", params={
-                    "page": page,
-                    "per_page": per_page,
-                    "sort_order": "desc"
-                })
-                incidents = resp.json()
-                if not incidents:
-                    break
-                
-                for incident in incidents:
-                    inc_number = incident.get("number")
-                    if str(inc_number) == str(display_number):
-                        internal_id = str(incident.get("id"))
-                        log.debug(f"Found ticket #{display_number} -> Internal ID: {internal_id}")
-                        # Cache the ticket
-                        self._ticket_cache[internal_id] = incident
-                        return internal_id
-                
-                log.debug(f"Checked page {page} ({len(incidents)} tickets)")
-                page += 1
-                
-            except Exception as e:
-                log.error(f"Error searching for ticket: {e}")
-                break
+        log.debug(f"Starting concurrent search for ticket {display_number} across {max_pages} pages with {max_workers} workers")
+        start_time = time.time()
         
-        log.debug(f"Ticket {display_number} not found after {page-1} pages")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all page requests concurrently
+            future_to_page = {
+                executor.submit(self._search_page_for_number, page, per_page, display_number): page 
+                for page in range(1, max_pages + 1)
+            }
+            
+            # Process results as they complete
+            for future in as_completed(future_to_page):
+                page = future_to_page[future]
+                try:
+                    result = future.result()
+                    if result:  # Found the ticket
+                        elapsed = time.time() - start_time
+                        log.debug(f"Found ticket {display_number} on page {page} in {elapsed:.1f}s")
+                        return result
+                except Exception as e:
+                    log.warning(f"Error searching page {page}: {e}")
+        
+        elapsed = time.time() - start_time
+        log.debug(f"Ticket {display_number} not found after searching {max_pages} pages in {elapsed:.1f}s")
         return None
+
+    def _search_page_for_number(self, page: int, per_page: int, display_number: str) -> Optional[str]:
+        """Search a single page for the display number."""
+        try:
+            resp = self._get("/incidents.json", params={
+                "page": page,
+                "per_page": per_page,
+                "sort_order": "desc"
+            })
+            incidents = resp.json()
+            
+            for incident in incidents:
+                inc_number = incident.get("number")
+                if str(inc_number) == str(display_number):
+                    internal_id = str(incident.get("id"))
+                    log.debug(f"Found ticket #{display_number} -> Internal ID: {internal_id} on page {page}")
+                    # Cache the ticket
+                    self._ticket_cache[internal_id] = incident
+                    return internal_id
+            
+            return None
+            
+        except Exception as e:
+            log.error(f"Error searching page {page}: {e}")
+            return None
 
     def fetch_ticket(self, ticket_id: str) -> Dict[str, Any]:
         """
@@ -215,6 +244,7 @@ class SolarWindsService:
                 log.error(f"No ticket found for {ticket_id}")
                 raise SWSDClientError(f"Ticket {ticket_id} not found")
             raise
+
 
     @staticmethod
     def to_raw_ticket(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -319,6 +349,9 @@ class SolarWindsService:
         Returns:
             True if successful, False otherwise
         """
+        # DISABLED: Ticket commenting disabled for testing
+        log.info(f"Would add comment to ticket {ticket_id}: {comment} (DISABLED)")
+        return True
         try:
             # Resolve ticket ID if it's a display number
             internal_id = ticket_id

@@ -27,48 +27,8 @@ from jml_automation.parsers.solarwinds_parser import (
 logger = logging.getLogger(__name__)
 
 
-# ========== Service Stubs (to be replaced with actual implementations) ==========
-
-class MicrosoftService:
-    """Stub for Microsoft 365 termination service."""
-    def execute_complete_termination(self, user_email: str, manager_email: str) -> Dict:
-        logger.warning(f"Microsoft termination not yet implemented for {user_email}")
-        return {
-            'success': False,
-            'error': 'Service not implemented',
-            'errors': ['Microsoft service not yet implemented']
-        }
-    
-    def test_connectivity(self) -> Dict:
-        return {'success': False, 'error': 'Service not implemented'}
-
-
-class GoogleService:
-    """Stub for Google Workspace termination service."""
-    def execute_complete_termination(self, user_email: str, manager_email: str) -> Dict:
-        logger.warning(f"Google termination not yet implemented for {user_email}")
-        return {
-            'success': False,
-            'error': 'Service not implemented',
-            'errors': ['Google service not yet implemented']
-        }
-    
-    def test_connectivity(self) -> Dict:
-        return {'success': False, 'error': 'Service not implemented'}
-
-
-class ZoomService:
-    """Stub for Zoom termination service."""
-    def execute_complete_termination(self, user_email: str, manager_email: Optional[str]) -> Dict:
-        logger.warning(f"Zoom termination not yet implemented for {user_email}")
-        return {
-            'success': False,
-            'error': 'Service not implemented',
-            'errors': ['Zoom service not yet implemented']
-        }
-    
-    def test_connectivity(self) -> Dict:
-        return {'success': False, 'error': 'Service not implemented'}
+# ========== Actual Service Implementations Used ==========
+# All services now use their actual implementations from the services directory
 
 
 # ========== Core Termination Class ==========
@@ -103,10 +63,23 @@ class TerminationWorkflow:
             self.okta = OktaService.from_config()
             self.synqprox = SynqProxService()
             
-            # Initialize other services (replace stubs with actual implementations when available)
-            self.microsoft = MicrosoftService()
-            self.google = GoogleService()
+            # Initialize actual service implementations
+            from jml_automation.services.microsoft import MicrosoftTermination
+            from jml_automation.services.google import GoogleTermination
+            from jml_automation.services.zoom import ZoomService
+            from jml_automation.services.adobe import AdobeService
+            from jml_automation.services.domo import DomoService
+            from jml_automation.services.lucid import LucidchartService
+            from jml_automation.services.workato import WorkatoService
+            
+            self.microsoft = MicrosoftTermination()
+            self.google = GoogleTermination()
             self.zoom = ZoomService()
+            self.adobe = AdobeService()
+            self.domo = DomoService()
+            self.lucidchart = LucidchartService()
+            self.workato = WorkatoService()
+            self.synq = self.synqprox  # Alias for consistency
             
             logger.info("Core services initialized successfully")
             
@@ -252,7 +225,7 @@ class TerminationWorkflow:
         
         try:
             # Load app-specific group mapping
-            termination_config = load_yaml("config/termination_order.yaml")
+            termination_config = load_yaml("termination_order.yaml")
             app_groups = termination_config.get("termination", {}).get("okta_groups_to_remove", {}).get(app_name, [])
             
             if not app_groups:
@@ -321,6 +294,7 @@ class TerminationWorkflow:
         manager_email: Optional[str] = None,
         ticket_id: Optional[str] = None,
         phases: Optional[List[str]] = None,
+        progress_callback: Optional[Any] = None,
     ) -> Dict:
         """
         Execute complete multi-phase termination for a single user.
@@ -330,10 +304,10 @@ class TerminationWorkflow:
             user_email: User to terminate
             manager_email: Manager for data delegation
             ticket_id: Service desk ticket ID
-            phases: List of phases to execute ['okta','microsoft','google','zoom','notifications']
+            phases: List of phases to execute ['okta','microsoft','google','zoom','synqprox','domo','lucid','workato']
         """
         if phases is None:
-            phases = ["okta", "microsoft", "google", "zoom"]
+            phases = ["okta", "microsoft", "google", "zoom", "synqprox", "domo", "lucid", "workato"]
 
         logger.info(f"Starting multi-phase termination for {user_email}")
         logger.info(f"Phases to execute: {', '.join(phases)}")
@@ -360,22 +334,34 @@ class TerminationWorkflow:
         try:
             # Phase 1: Okta (highest priority - immediate security)
             if "okta" in phases:
+                if progress_callback:
+                    progress_callback("Phase 1: Okta Security Cleanup", "starting")
                 logger.info(" PHASE 1: Okta user deactivation and security cleanup")
                 try:
                     okta_results = self.execute_okta_termination(user_email)
                     termination_results["okta_results"] = okta_results
                     
                     if okta_results.get("success"):
+                        actions = okta_results.get("actions_completed", [])
+                        details = f"Completed: {', '.join(actions)}" if actions else "User deactivated and secured"
+                        if progress_callback:
+                            progress_callback("Phase 1: Okta Security Cleanup", "success", details)
                         termination_results["summary"].append("SUCCESS: Okta: User deactivated, groups removed, sessions cleared")
                         termination_results["phase_success"]["okta"] = True
                         logger.info("Okta termination phase completed successfully")
                     else:
+                        errors = okta_results.get("errors", [])
+                        details = f"Issues: {', '.join(errors[:2])}" if errors else "See logs for details"
+                        if progress_callback:
+                            progress_callback("Phase 1: Okta Security Cleanup", "error", details)
                         termination_results["summary"].append("WARNING: Okta: Termination had issues")
                         termination_results["phase_success"]["okta"] = False
                         termination_results["errors"].extend(okta_results.get("errors", []))
                         logger.warning("Okta termination phase had issues")
                         
                 except Exception as e:
+                    if progress_callback:
+                        progress_callback("Phase 1: Okta Security Cleanup", "error", str(e))
                     logger.error(f"Okta termination failed: {e}")
                     termination_results["okta_results"] = {"success": False, "error": str(e)}
                     termination_results["phase_success"]["okta"] = False
@@ -383,6 +369,8 @@ class TerminationWorkflow:
 
             # Phase 2: Microsoft 365
             if "microsoft" in phases:
+                if progress_callback:
+                    progress_callback("Phase 2: Microsoft 365", "starting")
                 logger.info(" PHASE 2: Microsoft 365 mailbox and license management")
                 if manager_email:
                     try:
@@ -392,9 +380,20 @@ class TerminationWorkflow:
                         termination_results["microsoft_results"] = ms_results
                         
                         if ms_results.get("success"):
+                            # Remove from Microsoft-specific Okta groups after successful termination
+                            group_removal = self.remove_from_app_specific_groups(user_email, "microsoft")
+                            if group_removal.get("success"):
+                                logger.info(f"Removed from Microsoft Okta groups: {group_removal.get('removed_groups', [])}")
+                            else:
+                                logger.warning(f"Failed to remove from Microsoft Okta groups: {group_removal.get('error')}")
+                            
+                            if progress_callback:
+                                progress_callback("Phase 2: Microsoft 365", "success", "Mailbox converted, licenses removed, Okta groups updated")
                             termination_results["summary"].append("SUCCESS: Microsoft: Mailbox converted, licenses removed")
                             termination_results["phase_success"]["microsoft"] = True
                         else:
+                            if progress_callback:
+                                progress_callback("Phase 2: Microsoft 365", "warning", "Not yet implemented")
                             termination_results["summary"].append("WARNING: Microsoft: Not yet implemented")
                             termination_results["phase_success"]["microsoft"] = False
                             termination_results["warnings"].append("Microsoft service not yet implemented")
@@ -407,6 +406,8 @@ class TerminationWorkflow:
 
             # Phase 3: Google Workspace
             if "google" in phases:
+                if progress_callback:
+                    progress_callback("Phase 3: Google Workspace", "starting")
                 logger.info(" PHASE 3: Google Workspace termination and data transfer")
                 if manager_email:
                     try:
@@ -416,6 +417,13 @@ class TerminationWorkflow:
                         termination_results["google_results"] = g_results
                         
                         if g_results.get("success"):
+                            # Remove from Google-specific Okta groups after successful termination
+                            group_removal = self.remove_from_app_specific_groups(user_email, "google")
+                            if group_removal.get("success"):
+                                logger.info(f"Removed from Google Okta groups: {group_removal.get('removed_groups', [])}")
+                            else:
+                                logger.warning(f"Failed to remove from Google Okta groups: {group_removal.get('error')}")
+                            
                             termination_results["summary"].append("SUCCESS: Google: User suspended, data transferred")
                             termination_results["phase_success"]["google"] = True
                         else:
@@ -431,6 +439,8 @@ class TerminationWorkflow:
 
             # Phase 4: Zoom
             if "zoom" in phases:
+                if progress_callback:
+                    progress_callback("Phase 4: Zoom", "starting")
                 logger.info(" PHASE 4: Zoom account termination and cleanup")
                 try:
                     z_results = self.zoom.execute_complete_termination(
@@ -439,6 +449,13 @@ class TerminationWorkflow:
                     termination_results["zoom_results"] = z_results
                     
                     if z_results.get("success"):
+                        # Remove from Zoom-specific Okta groups after successful termination
+                        group_removal = self.remove_from_app_specific_groups(user_email, "zoom")
+                        if group_removal.get("success"):
+                            logger.info(f"Removed from Zoom Okta groups: {group_removal.get('removed_groups', [])}")
+                        else:
+                            logger.warning(f"Failed to remove from Zoom Okta groups: {group_removal.get('error')}")
+                        
                         termination_results["summary"].append("SUCCESS: Zoom: User deactivated")
                         termination_results["phase_success"]["zoom"] = True
                     else:
@@ -449,28 +466,215 @@ class TerminationWorkflow:
                     logger.error(f"Zoom termination failed: {e}")
                     termination_results["phase_success"]["zoom"] = False
 
-            # Update ticket status
-            if ticket_id:
+            # Phase 5: SynQ Prox (MANDATORY - always process)
+            if "synqprox" in phases:
+                if progress_callback:
+                    progress_callback("Phase 5: SynQ Prox", "starting")
+                logger.info(" PHASE 5: SynQ Prox termination (MANDATORY)")
                 try:
-                    logger.info(f" Updating ticket {ticket_id} status")
-                    self.solarwinds.update_ticket_status(
-                        ticket_id,
-                        "In Progress",
-                        notes=f"Termination processing - Okta: {'✓' if termination_results['phase_success'].get('okta') else '✗'}"
-                    )
-                    termination_results["summary"].append(f" Ticket {ticket_id} updated")
+                    synq_results = self.synqprox.execute_complete_termination(user_email, manager_email or "")
+                    termination_results["synqprox_results"] = synq_results
+                    
+                    if synq_results.get("success"):
+                        if progress_callback:
+                            progress_callback("Phase 5: SynQ Prox", "success", "User removed from SynQ Prox")
+                        termination_results["summary"].append("SUCCESS: SynQ Prox: User removed")
+                        termination_results["phase_success"]["synqprox"] = True
+                    else:
+                        if progress_callback:
+                            progress_callback("Phase 5: SynQ Prox", "error", f"Failed: {synq_results.get('error', 'Unknown error')}")
+                        termination_results["summary"].append(f"ERROR: SynQ Prox: {synq_results.get('error', 'Unknown error')}")
+                        termination_results["phase_success"]["synqprox"] = False
+                        termination_results["errors"].append(f"SynQ Prox termination failed: {synq_results.get('error')}")
                 except Exception as e:
-                    logger.error(f"Failed to update ticket {ticket_id}: {e}")
-                    termination_results["warnings"].append(f"Failed to update ticket {ticket_id}")
+                    logger.error(f"SynQ Prox termination failed: {e}")
+                    termination_results["phase_success"]["synqprox"] = False
+                    termination_results["errors"].append(f"SynQ Prox termination failed: {str(e)}")
 
-            # Determine overall success (Okta is always critical)
-            critical_phases = ["okta"]
-            critical_success = all(
+            # Phase 6: Domo (group-dependent)
+            if "domo" in phases:
+                if progress_callback:
+                    progress_callback("Phase 6: Domo", "starting")
+                logger.info(" PHASE 6: Domo termination (group-dependent)")
+                try:
+                    # Check if user is in Domo groups
+                    user = self.okta.get_user_by_email(user_email)
+                    if user:
+                        user_groups = self.okta.get_user_groups_by_names(user["id"], ["SSO-Domo"])
+                        
+                        if user_groups:
+                            logger.info(f"User is in Domo groups: {user_groups}, processing termination")
+                            domo_results = self.domo.execute_complete_termination(user_email, manager_email or "")
+                            termination_results["domo_results"] = domo_results
+                            
+                            if domo_results.get("success"):
+                                # Remove from Domo-specific Okta groups after successful termination
+                                group_removal = self.remove_from_app_specific_groups(user_email, "domo")
+                                if group_removal.get("success"):
+                                    logger.info(f"Removed from Domo Okta groups: {group_removal.get('removed_groups', [])}")
+                                else:
+                                    logger.warning(f"Failed to remove from Domo Okta groups: {group_removal.get('error')}")
+                                
+                                if progress_callback:
+                                    progress_callback("Phase 6: Domo", "success", "User removed from Domo, Okta groups updated")
+                                termination_results["summary"].append("SUCCESS: Domo: User removed, Okta groups updated")
+                                termination_results["phase_success"]["domo"] = True
+                            else:
+                                if progress_callback:
+                                    progress_callback("Phase 6: Domo", "error", f"Failed: {domo_results.get('error', 'Unknown error')}")
+                                termination_results["summary"].append(f"ERROR: Domo: {domo_results.get('error', 'Unknown error')}")
+                                termination_results["phase_success"]["domo"] = False
+                                termination_results["errors"].append(f"Domo termination failed: {domo_results.get('error')}")
+                        else:
+                            logger.info("User not in Domo groups, skipping Domo termination")
+                            if progress_callback:
+                                progress_callback("Phase 6: Domo", "success", "User not in Domo groups - skipped")
+                            termination_results["summary"].append("SUCCESS: Domo: User not in groups - skipped")
+                            termination_results["phase_success"]["domo"] = True
+                    else:
+                        logger.error(f"User {user_email} not found in Okta for Domo check")
+                        termination_results["phase_success"]["domo"] = False
+                        termination_results["errors"].append("User not found in Okta for Domo group check")
+                except Exception as e:
+                    logger.error(f"Domo termination failed: {e}")
+                    termination_results["phase_success"]["domo"] = False
+                    termination_results["errors"].append(f"Domo termination failed: {str(e)}")
+
+            # Phase 7: Lucid (group-dependent)
+            if "lucid" in phases:
+                if progress_callback:
+                    progress_callback("Phase 7: Lucid", "starting")
+                logger.info(" PHASE 7: Lucid termination (group-dependent)")
+                try:
+                    # Check if user is in Lucid groups
+                    user = self.okta.get_user_by_email(user_email)
+                    if user:
+                        user_groups = self.okta.get_user_groups_by_names(user["id"], ["SSO-Lucidchart Paid", "SSO-Lucidchart Free"])
+                        
+                        if user_groups:
+                            logger.info(f"User is in Lucid groups: {user_groups}, processing termination")
+                            lucid_results = self.lucidchart.execute_complete_termination(user_email, manager_email or "")
+                            termination_results["lucid_results"] = lucid_results
+                            
+                            if lucid_results.get("success"):
+                                # Remove from Lucid-specific Okta groups after successful termination
+                                group_removal = self.remove_from_app_specific_groups(user_email, "lucid")
+                                if group_removal.get("success"):
+                                    logger.info(f"Removed from Lucid Okta groups: {group_removal.get('removed_groups', [])}")
+                                else:
+                                    logger.warning(f"Failed to remove from Lucid Okta groups: {group_removal.get('error')}")
+                                
+                                if progress_callback:
+                                    progress_callback("Phase 7: Lucid", "success", "User removed from Lucid, Okta groups updated")
+                                termination_results["summary"].append("SUCCESS: Lucid: User removed, Okta groups updated")
+                                termination_results["phase_success"]["lucid"] = True
+                            else:
+                                if progress_callback:
+                                    progress_callback("Phase 7: Lucid", "error", f"Failed: {lucid_results.get('error', 'Unknown error')}")
+                                termination_results["summary"].append(f"ERROR: Lucid: {lucid_results.get('error', 'Unknown error')}")
+                                termination_results["phase_success"]["lucid"] = False
+                                termination_results["errors"].append(f"Lucid termination failed: {lucid_results.get('error')}")
+                        else:
+                            logger.info("User not in Lucid groups, skipping Lucid termination")
+                            if progress_callback:
+                                progress_callback("Phase 7: Lucid", "success", "User not in Lucid groups - skipped")
+                            termination_results["summary"].append("SUCCESS: Lucid: User not in groups - skipped")
+                            termination_results["phase_success"]["lucid"] = True
+                    else:
+                        logger.error(f"User {user_email} not found in Okta for Lucid check")
+                        termination_results["phase_success"]["lucid"] = False
+                        termination_results["errors"].append("User not found in Okta for Lucid group check")
+                except Exception as e:
+                    logger.error(f"Lucid termination failed: {e}")
+                    termination_results["phase_success"]["lucid"] = False
+                    termination_results["errors"].append(f"Lucid termination failed: {str(e)}")
+
+            # Phase 8: Workato (group-dependent)
+            if "workato" in phases:
+                if progress_callback:
+                    progress_callback("Phase 8: Workato", "starting")
+                logger.info(" PHASE 8: Workato termination (group-dependent)")
+                try:
+                    # Check if user is in Workato groups
+                    user = self.okta.get_user_by_email(user_email)
+                    if user:
+                        user_groups = self.okta.get_user_groups_by_names(user["id"], ["SSO-Workato"])
+                        
+                        if user_groups:
+                            logger.info(f"User is in Workato groups: {user_groups}, processing termination")
+                            workato_results = self.workato.execute_complete_termination(user_email, manager_email or "")
+                            termination_results["workato_results"] = workato_results
+                            
+                            if workato_results.get("success"):
+                                # Remove from Workato-specific Okta groups after successful termination
+                                group_removal = self.remove_from_app_specific_groups(user_email, "workato")
+                                if group_removal.get("success"):
+                                    logger.info(f"Removed from Workato Okta groups: {group_removal.get('removed_groups', [])}")
+                                else:
+                                    logger.warning(f"Failed to remove from Workato Okta groups: {group_removal.get('error')}")
+                                
+                                if progress_callback:
+                                    progress_callback("Phase 8: Workato", "success", "User removed from Workato, Okta groups updated")
+                                termination_results["summary"].append("SUCCESS: Workato: User removed, Okta groups updated")
+                                termination_results["phase_success"]["workato"] = True
+                            else:
+                                if progress_callback:
+                                    progress_callback("Phase 8: Workato", "error", f"Failed: {workato_results.get('error', 'Unknown error')}")
+                                termination_results["summary"].append(f"ERROR: Workato: {workato_results.get('error', 'Unknown error')}")
+                                termination_results["phase_success"]["workato"] = False
+                                termination_results["errors"].append(f"Workato termination failed: {workato_results.get('error')}")
+                        else:
+                            logger.info("User not in Workato groups, skipping Workato termination")
+                            if progress_callback:
+                                progress_callback("Phase 8: Workato", "success", "User not in Workato groups - skipped")
+                            termination_results["summary"].append("SUCCESS: Workato: User not in groups - skipped")
+                            termination_results["phase_success"]["workato"] = True
+                    else:
+                        logger.error(f"User {user_email} not found in Okta for Workato check")
+                        termination_results["phase_success"]["workato"] = False
+                        termination_results["errors"].append("User not found in Okta for Workato group check")
+                except Exception as e:
+                    logger.error(f"Workato termination failed: {e}")
+                    termination_results["phase_success"]["workato"] = False
+                    termination_results["errors"].append(f"Workato termination failed: {str(e)}")
+
+            # Determine overall success - all executed phases must succeed
+            executed_phases = [phase for phase in phases if phase in termination_results["phase_success"]]
+            overall_success = all(
                 termination_results["phase_success"].get(phase, False)
-                for phase in critical_phases if phase in phases
+                for phase in executed_phases
             )
             
-            termination_results["overall_success"] = critical_success
+            termination_results["overall_success"] = overall_success
+
+            # Update ticket status ONLY if ALL phases completed successfully
+            # DISABLED: Ticket updating disabled for testing
+            if ticket_id:
+                if overall_success:
+                    try:
+                        logger.info(f" All phases successful - would update ticket {ticket_id} to 'In Progress' (DISABLED)")
+                        phase_summary = ", ".join([
+                            f"{phase.title()}: {'✓' if termination_results['phase_success'].get(phase) else '✗'}"
+                            for phase in executed_phases
+                        ])
+                        # self.solarwinds.update_ticket_status(
+                        #     ticket_id,
+                        #     "In Progress",
+                        #     notes=f"Multi-phase termination completed successfully - {phase_summary}"
+                        # )
+                        termination_results["summary"].append(f" Ticket {ticket_id} would be updated to 'In Progress' (DISABLED)")
+                        logger.info(f"Would update ticket {ticket_id} to 'In Progress' - all phases successful (DISABLED)")
+                    except Exception as e:
+                        logger.error(f"Failed to update ticket {ticket_id}: {e}")
+                        termination_results["warnings"].append(f"Failed to update ticket {ticket_id}")
+                else:
+                    logger.warning(f" Some phases failed - ticket {ticket_id} remains in current state")
+                    failed_phases = [
+                        phase for phase in executed_phases 
+                        if not termination_results["phase_success"].get(phase)
+                    ]
+                    termination_results["summary"].append(f" Ticket {ticket_id} NOT updated - failed phases: {', '.join(failed_phases)}")
+                    logger.warning(f"Ticket {ticket_id} NOT updated - failed phases: {', '.join(failed_phases)}")
             termination_results["end_time"] = datetime.now()
             duration = termination_results["end_time"] - termination_results["start_time"]
             termination_results["duration_seconds"] = duration.total_seconds()
@@ -554,8 +758,8 @@ class TerminationWorkflow:
             print(f"Transfer to: {manager_email or 'Not specified'}")
             print("\nSteps:")
             print(" - Okta: Clear all active sessions")
-            print(" - Okta: Remove from all groups")
             print(" - Okta: Deactivate user account")
+            print(" - Apps: Remove from app-specific groups after deprovisioning")
             print(" - SolarWinds: Update ticket status")
             return 0
 
@@ -566,19 +770,22 @@ class TerminationWorkflow:
         okta_result = self.execute_okta_termination(user_email, ticket)
         
         # Update SolarWinds ticket
+        # DISABLED: Ticket updating disabled for testing
         try:
             if okta_result['success']:
-                self.solarwinds.update_ticket_status(
-                    ticket.ticket_id,
-                    "In Progress",
-                    notes=f"Okta termination completed: {', '.join(okta_result['actions_completed'])}"
-                )
+                # self.solarwinds.update_ticket_status(
+                #     ticket.ticket_id,
+                #     "In Progress",
+                #     notes=f"Okta termination completed: {', '.join(okta_result['actions_completed'])}"
+                # )
+                logger.info(f"Would update ticket {ticket.ticket_id} to 'In Progress' (DISABLED)")
             else:
-                self.solarwinds.update_ticket_status(
-                    ticket.ticket_id,
-                    "Pending",
-                    notes=f"Okta termination had issues: {', '.join(okta_result['actions_failed'])}"
-                )
+                # self.solarwinds.update_ticket_status(
+                #     ticket.ticket_id,
+                #     "Pending",
+                #     notes=f"Okta termination had issues: {', '.join(okta_result['actions_failed'])}"
+                # )
+                logger.info(f"Would update ticket {ticket.ticket_id} to 'Pending' (DISABLED)")
         except Exception as e:
             logger.error(f"Failed to update SolarWinds ticket: {e}")
         

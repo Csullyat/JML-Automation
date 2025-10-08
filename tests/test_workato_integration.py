@@ -35,7 +35,7 @@ def test_workato_dry_run():
     result = workato.terminate_user(user_email)
     assert result, "Workato termination workflow failed"
     
-    print(f"✅ Workato test passed for {user_email}")
+    print(f"Workato test passed for {user_email}")
     return True
 
 if __name__ == "__main__":

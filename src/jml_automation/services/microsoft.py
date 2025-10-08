@@ -585,5 +585,47 @@ def test_microsoft_termination():
     except Exception as e:
         print(f"Test failed: {e}")
 
+    def test_connectivity(self) -> Dict:
+        """Test Microsoft Graph API connectivity."""
+        try:
+            # Test with a simple API call to get current user
+            headers = {
+                'Authorization': f'Bearer {self._get_access_token()}',
+                'Content-Type': 'application/json'
+            }
+            
+            # Test API call - get organization info
+            response = requests.get(
+                f'{self.graph_endpoint}/organization',
+                headers=headers,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                org_data = response.json()
+                org_name = org_data.get('value', [{}])[0].get('displayName', 'Unknown')
+                logger.info("Microsoft Graph API connectivity test successful")
+                return {
+                    'success': True,
+                    'message': f'Connected to Microsoft Graph for organization: {org_name}'
+                }
+            else:
+                logger.error(f"Microsoft Graph API connectivity test failed: {response.status_code}")
+                return {
+                    'success': False,
+                    'error': f'Microsoft Graph API test failed with status {response.status_code}'
+                }
+                
+        except Exception as e:
+            logger.error(f"Microsoft Graph API connectivity test error: {e}")
+            return {
+                'success': False,
+                'error': f'Microsoft Graph API connection failed: {str(e)}'
+            }
+
+
+# Alias for compatibility with import expectations
+MicrosoftService = MicrosoftTermination
+
 if __name__ == "__main__":
     test_microsoft_termination()

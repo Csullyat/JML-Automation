@@ -186,9 +186,9 @@ class SingleTicketWorkflow:
             # Add Adobe result to system results
             results['system_results']['adobe'] = adobe_result
             if adobe_result.get('success'):
-                results['summary'].append(f"✅ Adobe: {adobe_result.get('message', 'Completed successfully')}")
+                results['summary'].append(f"Adobe: {adobe_result.get('message', 'Completed successfully')}")
             else:
-                results['summary'].append(f"❌ Adobe: {adobe_result.get('error', 'Failed')}")
+                results['summary'].append(f"Adobe: {adobe_result.get('error', 'Failed')}")
                 if adobe_result.get('error'):
                     results['errors'].append(f"Adobe: {adobe_result['error']}")
             
@@ -199,9 +199,9 @@ class SingleTicketWorkflow:
             # Add Workato result to system results
             results['system_results']['workato'] = workato_result
             if workato_result.get('success'):
-                results['summary'].append(f"✅ Workato: {workato_result.get('message', 'Completed successfully')}")
+                results['summary'].append(f"Workato: {workato_result.get('message', 'Completed successfully')}")
             else:
-                results['summary'].append(f"❌ Workato: {workato_result.get('error', 'Failed')}")
+                results['summary'].append(f"Workato: {workato_result.get('error', 'Failed')}")
                 if workato_result.get('error'):
                     results['errors'].append(f"Workato: {workato_result['error']}")
             

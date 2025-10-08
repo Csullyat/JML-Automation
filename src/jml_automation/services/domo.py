@@ -341,6 +341,85 @@ class DomoService:
                 'verified': False
             }
 
+    def execute_complete_termination(self, user_email: str, manager_email: str) -> Dict:
+        """
+        Execute complete Domo termination following the termination procedure.
+        
+        Domo Termination Steps:
+        1. Log into Domo Admin via Okta
+        2. Select user → Delete person
+        3. Remove from "SSO-Domo" group in Okta (handled by workflow)
+        
+        Args:
+            user_email: Email of user to terminate
+            manager_email: Manager email (not used for Domo)
+            
+        Returns:
+            Dict with success status, actions taken, and any errors
+        """
+        actions_taken = []
+        errors = []
+        warnings = []
+        
+        try:
+            logger.info(f"Starting Domo termination for {user_email}")
+            
+            # Step 1: Find user in Domo
+            user_info = self.find_user_by_email(user_email)
+            if not user_info:
+                logger.info(f"User {user_email} not found in Domo - no termination needed")
+                return {
+                    'success': True,
+                    'actions': ['User not found in Domo - no action needed'],
+                    'errors': errors,
+                    'warnings': warnings
+                }
+            
+            actions_taken.append(f"Found user in Domo: {user_email}")
+            
+            # Step 2: Delete user from Domo
+            logger.info(f"Deleting Domo user: {user_email}")
+            deletion_success = self.delete_user(user_email)
+            
+            if deletion_success:
+                actions_taken.append(f"Deleted Domo user: {user_email}")
+                logger.info(f"Successfully deleted Domo user: {user_email}")
+                
+                # Step 3: Verify deletion
+                verification_result = self.verify_user_deleted(user_email)
+                if verification_result:
+                    actions_taken.append("Verified user deletion from Domo")
+                else:
+                    warnings.append("User deletion not verified - may still exist in Domo")
+                
+                return {
+                    'success': True,
+                    'actions': actions_taken,
+                    'errors': errors,
+                    'warnings': warnings
+                }
+            else:
+                error_msg = f"Failed to delete Domo user: {user_email}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+                return {
+                    'success': False,
+                    'actions': actions_taken,
+                    'errors': errors,
+                    'warnings': warnings
+                }
+                
+        except Exception as e:
+            error_msg = f"Error in Domo termination for {user_email}: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return {
+                'success': False,
+                'actions': actions_taken,
+                'errors': errors,
+                'warnings': warnings
+            }
+
     def test_connectivity(self) -> Dict[str, Any]:
         """Test Domo API connectivity."""
         try:

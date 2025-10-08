@@ -587,6 +587,72 @@ class SynqProxService(BaseService):
         result = self.execute_termination(user_email)
         return result.get('success', False)
 
+    def execute_complete_termination(self, user_email: str, manager_email: str) -> dict:
+        """
+        Execute complete SynQ Prox termination following the termination procedure.
+        
+        SynQ Termination Steps:
+        1. Log into SynQ Admin
+        2. Search user → Trash can icon → Delete
+        
+        Args:
+            user_email: Email of user to terminate
+            manager_email: Manager email (not used for SynQ Prox)
+            
+        Returns:
+            Dict with success status, actions taken, and any errors
+        """
+        actions_taken = []
+        errors = []
+        warnings = []
+        
+        try:
+            logger.info(f"Starting SynQ Prox termination for {user_email}")
+            
+            # Use the existing execute_termination method which handles the web automation
+            termination_result = self.execute_termination(user_email)
+            
+            if termination_result.get('success', False):
+                actions_taken.append(f"Successfully deleted SynQ Prox user: {user_email}")
+                
+                # Add any actions from the termination result
+                if 'actions' in termination_result:
+                    actions_taken.extend(termination_result['actions'])
+                
+                logger.info(f"SynQ Prox termination completed successfully for {user_email}")
+                return {
+                    'success': True,
+                    'actions': actions_taken,
+                    'errors': errors,
+                    'warnings': warnings
+                }
+            else:
+                error_msg = termination_result.get('error', f'Failed to delete SynQ Prox user: {user_email}')
+                errors.append(error_msg)
+                
+                # Add any errors from the termination result
+                if 'errors' in termination_result:
+                    errors.extend(termination_result['errors'])
+                
+                logger.error(f"SynQ Prox termination failed for {user_email}: {error_msg}")
+                return {
+                    'success': False,
+                    'actions': actions_taken,
+                    'errors': errors,
+                    'warnings': warnings
+                }
+                
+        except Exception as e:
+            error_msg = f"Error in SynQ Prox termination for {user_email}: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return {
+                'success': False,
+                'actions': actions_taken,
+                'errors': errors,
+                'warnings': warnings
+            }
+
     def test_connection(self) -> bool:
         """Legacy method - use test_connectivity instead."""
         result = self.test_connectivity()

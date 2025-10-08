@@ -91,7 +91,7 @@ def test_adobe_production(email: str):
         
         # Only proceed if user is in Adobe group
         if not group_membership.get("SSO-Adobe", False):
-            print("ℹ️  User is not in SSO-Adobe group - no action needed")
+            print("User is not in SSO-Adobe group - no action needed")
             return True
         
         # Test 3: Full termination workflow (PRODUCTION)
@@ -99,16 +99,16 @@ def test_adobe_production(email: str):
         success = adobe.terminate_user(email)
         
         if success:
-            print(f"✅ Adobe termination completed for {email}")
+            print(f"Adobe termination completed for {email}")
             print("   - User deleted from Adobe account")
             print("   - User removed from SSO-Adobe group")
             return True
         else:
-            print(f"❌ Adobe termination failed for {email}")
+            print(f"Adobe termination failed for {email}")
             return False
             
     except Exception as e:
-        print(f"❌ Error during Adobe termination: {e}")
+        print(f"Error during Adobe termination: {e}")
         return False
 
 def main():

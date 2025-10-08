@@ -19,16 +19,32 @@ class GoogleTermination:
         """Initialize Google Workspace termination client."""
         try:
             config = Config()
-            self.credentials = config.get_google_service_account_credentials()
+            
+            # Get domain info 
+            google_config = config.get_google_credentials()
+            self.domain = google_config['domain']
+            
+            # Use the working admin email (not from config)
+            self.admin_email = "codyatkinson@filevine.com"  # Working admin email
+            
+            # Get service account credentials and apply domain delegation
+            service_account_info = config.get_google_service_account_key()
+            scopes = [
+                'https://www.googleapis.com/auth/admin.directory.user',
+                'https://www.googleapis.com/auth/admin.datatransfer'
+            ]
+            from google.oauth2 import service_account
+            base_credentials = service_account.Credentials.from_service_account_info(
+                service_account_info, scopes=scopes
+            )
+            # Apply domain delegation with the working admin email
+            self.credentials = base_credentials.with_subject(self.admin_email)
+            
+            # Use the delegated credentials for API services
             self.admin_service = build('admin', 'directory_v1', credentials=self.credentials)
             self.gmail_service = build('gmail', 'v1', credentials=self.credentials)
             
-            # Get domain info
-            google_config = config.get_google_credentials()
-            self.domain = google_config['domain']
-            self.admin_email = google_config['admin_email']
-            
-            logger.info("Google Workspace termination client initialized successfully")
+            logger.info("Google Workspace termination client initialized successfully with domain delegation")
             
         except Exception as e:
             logger.error(f"Failed to initialize Google Workspace client: {e}")
@@ -228,22 +244,18 @@ class GoogleTermination:
                 errors.append("Group removal failed")
                 logger.error("Failed to remove from groups")
             
-            # Step 5: Suspend user account
-            if not is_suspended:
-                logger.info(f"Step 5: Suspending user account")
-                if self.suspend_user(user_email):
-                    actions_completed.append("User account suspended")
-                    logger.info("User account suspended")
-                else:
-                    actions_failed.append("Failed to suspend user")
-                    errors.append("User suspension failed")
-                    logger.error("Failed to suspend user")
+            # Step 5: Delete user account (after data transfer)
+            logger.info(f"Step 5: Deleting user account from Google Workspace")
+            if self.delete_user(user_email):
+                actions_completed.append("User account deleted from Google Workspace")
+                logger.info("User account deleted from Google Workspace")
             else:
-                actions_completed.append("User already suspended")
-                logger.info("User already suspended")
+                actions_failed.append("Failed to delete user from Google Workspace")
+                errors.append("User deletion failed")
+                logger.error("Failed to delete user from Google Workspace")
             
             # Determine success
-            critical_failures = [f for f in actions_failed if 'suspend' in f.lower()]
+            critical_failures = [f for f in actions_failed if 'delete' in f.lower()]
             success = len(critical_failures) == 0
             
             end_time = datetime.now()
@@ -284,6 +296,33 @@ class GoogleTermination:
                 'duration_seconds': (datetime.now() - start_time).total_seconds()
             }
     
+    def delete_user(self, user_email: str) -> bool:
+        """Delete user from Google Workspace."""
+        try:
+            logger.info(f"Deleting Google Workspace user: {user_email}")
+            
+            # Check if user exists first
+            user = self.get_user_info(user_email)
+            if not user:
+                logger.warning(f"User {user_email} not found, skipping deletion")
+                return True
+            
+            # Delete the user
+            self.admin_service.users().delete(userKey=user_email).execute()
+            logger.info(f"Successfully deleted Google Workspace user: {user_email}")
+            return True
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                logger.warning(f"User {user_email} already deleted or not found")
+                return True
+            else:
+                logger.error(f"Error deleting Google Workspace user {user_email}: {e}")
+                return False
+        except Exception as e:
+            logger.error(f"Unexpected error deleting user {user_email}: {e}")
+            return False
+
     def test_connectivity(self) -> Dict:
         """Test Google Workspace API connectivity."""
         try:
@@ -415,35 +454,78 @@ class GoogleTerminationManager:
             logger.error(f"Error transferring data from {user_email} to {manager_email}: {e}")
             return False
 
-    def _monitor_data_transfer(self, transfer_id: str, user_email: str, manager_email: str, max_wait_time: int = 300) -> bool:
+    def _monitor_data_transfer(self, transfer_id: str, user_email: str, manager_email: str, max_wait_time: int | None = None) -> bool:
+        """
+        Monitor data transfer with unlimited polling until completion.
+        
+        Args:
+            transfer_id: Google Admin transfer ID
+            user_email: Source user email
+            manager_email: Target manager email  
+            max_wait_time: Maximum wait time in seconds (None for unlimited)
+            
+        Returns:
+            True if transfer completed successfully, False if failed
+        """
         try:
-            logger.info(f"Monitoring data transfer {transfer_id} (max wait: {max_wait_time}s)")
+            if max_wait_time:
+                logger.info(f"Monitoring data transfer {transfer_id} (max wait: {max_wait_time}s)")
+            else:
+                logger.info(f"Monitoring data transfer {transfer_id} (unlimited polling)")
+            
             import time
             start_time = time.time()
             poll_interval = 5
-            while time.time() - start_time < max_wait_time:
-                result = self.datatransfer_service.transfers().get(dataTransferId=transfer_id).execute()
-                overall_status = result.get('overallTransferStatusCode')
-                logger.info(f"Transfer status: {overall_status}")
-                if overall_status == 'completed':
-                    logger.info(f"Data transfer completed successfully: {user_email} -> {manager_email}")
-                    return True
-                elif overall_status == 'failed':
-                    logger.error(f"Data transfer failed: {user_email} -> {manager_email}")
+            check_count = 0
+            
+            while True:
+                check_count += 1
+                elapsed = time.time() - start_time
+                
+                # Check if we've hit max wait time (if specified)
+                if max_wait_time and elapsed >= max_wait_time:
+                    logger.warning(f"Data transfer monitoring timeout after {max_wait_time}s")
                     return False
-                elif overall_status in ['inProgress', 'pending']:
-                    elapsed = time.time() - start_time
-                    if elapsed > 60:
-                        poll_interval = 15
-                    elif elapsed > 30:
-                        poll_interval = 10
-                    logger.info(f"Data transfer in progress, waiting {poll_interval} seconds...")
+                
+                try:
+                    result = self.datatransfer_service.transfers().get(dataTransferId=transfer_id).execute()
+                    overall_status = result.get('overallTransferStatusCode')
+                    
+                    # Log progress every 5 checks to avoid spam
+                    if check_count % 5 == 1:
+                        minutes_elapsed = int(elapsed / 60)
+                        logger.info(f"Transfer status check #{check_count} ({minutes_elapsed}m elapsed): {overall_status}")
+                    
+                    if overall_status == 'completed':
+                        logger.info(f"Data transfer COMPLETED successfully after {elapsed:.1f}s: {user_email} -> {manager_email}")
+                        return True
+                    elif overall_status == 'failed':
+                        logger.error(f"Data transfer FAILED: {user_email} -> {manager_email}")
+                        return False
+                    elif overall_status in ['inProgress', 'pending']:
+                        # Adaptive polling intervals
+                        if elapsed > 300:  # 5+ minutes
+                            poll_interval = 30
+                        elif elapsed > 120:  # 2+ minutes
+                            poll_interval = 15
+                        elif elapsed > 60:   # 1+ minutes
+                            poll_interval = 10
+                        else:
+                            poll_interval = 5
+                            
+                        if check_count % 5 == 1:  # Only log occasionally
+                            logger.info(f"Data transfer in progress, next check in {poll_interval}s...")
+                        time.sleep(poll_interval)
+                    else:
+                        logger.warning(f"Unknown transfer status: {overall_status}")
+                        time.sleep(poll_interval)
+                        
+                except Exception as api_error:
+                    logger.error(f"Error checking transfer status (attempt {check_count}): {api_error}")
                     time.sleep(poll_interval)
-                else:
-                    logger.warning(f"Unknown transfer status: {overall_status}")
-                    time.sleep(poll_interval)
-            logger.warning(f"Data transfer monitoring timeout after {max_wait_time}s")
-            return False
+                    if check_count > 10:  # After 10 failed checks, give up
+                        return False
+                        
         except Exception as e:
             logger.error(f"Error monitoring data transfer {transfer_id}: {e}")
             return False
@@ -469,32 +551,128 @@ class GoogleTerminationManager:
             logger.error(f"Unexpected error deleting user {user_email}: {e}")
             return False
 
-    def execute_complete_termination(self, user_email: str, manager_email: str) -> bool:
+    def execute_complete_termination(self, user_email: str, manager_email: str) -> Dict:
+        """
+        Execute complete Google Workspace termination following the termination procedure.
+        
+        Steps:
+        1. Transfer user data to manager (if manager provided)
+        2. Delete user account
+        3. Remove from SSO-G Suite_EnterpriseUsers group in Okta (handled by workflow)
+        
+        Returns:
+            Dict with success status, actions taken, and any errors
+        """
+        actions_taken = []
+        errors = []
+        
         try:
             logger.info(f"Starting Google Workspace termination for {user_email}")
             user = self.find_user_by_email(user_email)
             if not user:
                 logger.warning(f"User {user_email} not found in Google Workspace")
-                return True
+                return {
+                    'success': True,
+                    'actions': ['User not found - no action needed'],
+                    'errors': [],
+                    'warnings': [f'User {user_email} not found in Google Workspace']
+                }
+            
+            # Step 1: Transfer data to manager (WAIT FOR COMPLETION)
             if manager_email:
                 logger.info(f"Step 1: Transferring data to manager ({manager_email})")
+                logger.info("STARTING DATA TRANSFER - Will wait for completion before proceeding")
                 transfer_success = self.transfer_user_data(user_email, manager_email)
-                if not transfer_success:
-                    logger.error(f"Data transfer failed for {user_email}, aborting deletion to preserve data")
-                    return False
+                if transfer_success:
+                    logger.info(f"DATA TRANSFER VERIFIED COMPLETE: {user_email} -> {manager_email}")
+                    actions_taken.append(f"Data transfer COMPLETED and VERIFIED: {user_email} -> {manager_email}")
+                else:
+                    error_msg = f"Data transfer FAILED or could not be verified for {user_email} - ABORTING deletion to preserve data"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+                    return {
+                        'success': False,
+                        'actions': actions_taken,
+                        'errors': errors,
+                        'warnings': []
+                    }
             else:
                 logger.warning(f"No manager specified for {user_email}, skipping data transfer")
-            logger.info(f"Step 2: Deleting user account")
+                logger.warning("NO DATA TRANSFER - User will be suspended but NOT deleted")
+                actions_taken.append("Skipped data transfer - no manager specified")
+                
+                # If no manager, suspend user but DO NOT delete
+                logger.info(f"Step 1b: Suspending user (no deletion without data transfer)")
+                suspend_success = self.suspend_user(user_email)
+                if suspend_success:
+                    actions_taken.append(f"User suspended (not deleted - no data transfer): {user_email}")
+                    return {
+                        'success': True,
+                        'actions': actions_taken,
+                        'errors': errors,
+                        'warnings': ['User suspended only - no deletion without data transfer']
+                    }
+                else:
+                    error_msg = f"User suspension failed for {user_email}"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+                    return {
+                        'success': False,
+                        'actions': actions_taken,
+                        'errors': errors,
+                        'warnings': []
+                    }
+
+            # Step 2: Delete user account (ONLY after verified data transfer)
+            logger.info(f"Step 2: Deleting user account (data transfer verified complete)")
             deletion_success = self.delete_user(user_email)
             if deletion_success:
+                actions_taken.append(f"User account DELETED after verified data transfer: {user_email}")
                 logger.info(f"Google Workspace termination completed for {user_email}")
-                return True
+                return {
+                    'success': True,
+                    'actions': actions_taken,
+                    'errors': errors,
+                    'warnings': []
+                }
             else:
-                logger.error(f"User deletion failed for {user_email}")
-                return False
+                error_msg = f"User deletion failed for {user_email} (but data was transferred)"
+                logger.error(error_msg)
+                errors.append(error_msg)
+                return {
+                    'success': False,
+                    'actions': actions_taken,
+                    'errors': errors,
+                    'warnings': []
+                }
+                
         except Exception as e:
-            logger.error(f"Error in Google Workspace termination for {user_email}: {e}")
-            return False
+            error_msg = f"Error in Google Workspace termination for {user_email}: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return {
+                'success': False,
+                'actions': actions_taken,
+                'errors': errors,
+                'warnings': []
+            }
+
+    def test_connectivity(self) -> Dict:
+        """Test Google Workspace API connectivity."""
+        try:
+            # Try to get domain info to test connection
+            domain_info = self.admin_service.domains().get(domainName=self.domain).execute()
+            logger.info("Google Workspace connectivity test successful")
+            return {
+                'success': True,
+                'message': f'Connected to Google Workspace domain: {domain_info.get("domainName", self.domain)}'
+            }
+        except Exception as e:
+            logger.error(f"Google Workspace connectivity test failed: {e}")
+            return {
+                'success': False,
+                'error': f'Google Workspace connection failed: {str(e)}'
+            }
 
 
 # Alias for compatibility with import expectations

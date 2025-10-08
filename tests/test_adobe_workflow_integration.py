@@ -29,22 +29,22 @@ def test_workflow_order():
     assert hasattr(workflow, '_execute_adobe_termination'), "Adobe termination method missing"
     assert hasattr(workflow, '_execute_workato_termination'), "Workato termination method missing"
     
-    print("✅ Adobe termination method exists")
-    print("✅ Workato termination method exists")
+    print("Adobe termination method exists")
+    print("Workato termination method exists")
     
     # Check connectivity testing methods exist
     assert hasattr(workflow, '_test_adobe_connectivity'), "Adobe connectivity test missing"
     assert hasattr(workflow, '_test_workato_connectivity'), "Workato connectivity test missing"
     
-    print("✅ Adobe connectivity test exists")
-    print("✅ Workato connectivity test exists")
+    print(" Adobe connectivity test exists")
+    print(" Workato connectivity test exists")
     
     print("\n" + "=" * 70)
     print("WORKFLOW ORDER VERIFICATION")
     print("=" * 70)
     print("Expected execution order:")
     print("1. Okta → 2. M365 → 3. Google → 4. Zoom → 5. Domo → 6. Lucid → 7. Synq → 8. Adobe → 9. Workato")
-    print("✅ Order verified in code - Adobe runs before Workato")
+    print(" Order verified in code - Adobe runs before Workato")
     
     return True
 
@@ -64,13 +64,13 @@ def test_adobe_conditional_logic():
         assert hasattr(adobe, 'terminate_user'), "Adobe terminate_user method missing"
         assert hasattr(adobe, 'test_connection'), "Adobe test_connection method missing"
         
-        print("✅ Adobe service initialized successfully")
-        print("✅ Adobe terminate_user method exists")
-        print("✅ Adobe test_connection method exists")
-        print("✅ Adobe conditional logic: Only runs if user in SSO-Adobe group")
+        print(" Adobe service initialized successfully")
+        print(" Adobe terminate_user method exists")
+        print(" Adobe test_connection method exists")
+        print(" Adobe conditional logic: Only runs if user in SSO-Adobe group")
         
     except Exception as e:
-        print(f"❌ Adobe service test failed: {e}")
+        print(f" Adobe service test failed: {e}")
         return False
     
     return True
@@ -91,13 +91,13 @@ def test_workato_conditional_logic():
         assert hasattr(workato, 'terminate_user'), "Workato terminate_user method missing"
         assert hasattr(workato, 'test_connection'), "Workato test_connection method missing"
         
-        print("✅ Workato service initialized successfully")
-        print("✅ Workato terminate_user method exists")
-        print("✅ Workato test_connection method exists")
-        print("✅ Workato conditional logic: Only runs if user in Workato groups")
+        print(" Workato service initialized successfully")
+        print(" Workato terminate_user method exists")
+        print(" Workato test_connection method exists")
+        print(" Workato conditional logic: Only runs if user in Workato groups")
         
     except Exception as e:
-        print(f"❌ Workato service test failed: {e}")
+        print(f" Workato service test failed: {e}")
         return False
     
     return True
@@ -111,30 +111,30 @@ def main():
     try:
         # Test workflow order
         if not test_workflow_order():
-            print("❌ Workflow order test failed")
+            print(" Workflow order test failed")
             return False
         
         # Test Adobe conditional logic
         if not test_adobe_conditional_logic():
-            print("❌ Adobe conditional logic test failed")
+            print(" Adobe conditional logic test failed")
             return False
         
         # Test Workato conditional logic
         if not test_workato_conditional_logic():
-            print("❌ Workato conditional logic test failed")
+            print(" Workato conditional logic test failed")
             return False
         
         print("\n" + "=" * 70)
         print("ALL TESTS PASSED - ADOBE INTEGRATION COMPLETE")
         print("=" * 70)
-        print("✅ Adobe integrated into single ticket workflow")
-        print("✅ Correct execution order: Adobe before Workato")
-        print("✅ Adobe runs conditionally based on SSO-Adobe group")
-        print("✅ Workato runs conditionally based on Workato groups")
-        print("✅ OAuth S2S authentication implemented")
-        print("✅ Service account credential management working")
-        print("✅ Okta group integration functional")
-        print("✅ Complete user deletion workflow verified")
+        print(" Adobe integrated into single ticket workflow")
+        print(" Correct execution order: Adobe before Workato")
+        print(" Adobe runs conditionally based on SSO-Adobe group")
+        print(" Workato runs conditionally based on Workato groups")
+        print(" OAuth S2S authentication implemented")
+        print(" Service account credential management working")
+        print(" Okta group integration functional")
+        print(" Complete user deletion workflow verified")
         
         print("\nFINAL WORKFLOW ORDER:")
         print("1. Okta (deactivate user, clear sessions)")
@@ -146,12 +146,12 @@ def main():
         print("7. SYNQ Prox (delete user)")
         print("8. Adobe (delete from account, remove from SSO-Adobe group)")
         print("9. Workato (remove from workspaces, remove from groups)")
-        print("\n📋 IMPORTANT: Okta only deactivates - apps handle their own groups!")
+        print("\n IMPORTANT: Okta only deactivates - apps handle their own groups!")
         
         return True
         
     except Exception as e:
-        print(f"❌ Integration test failed: {e}")
+        print(f" Integration test failed: {e}")
         return False
 
 

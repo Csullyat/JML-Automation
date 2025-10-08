@@ -79,16 +79,16 @@ def test_correct_endpoint():
         print(f"Response Body: {response.text}")
         
         if response.status_code == 200:
-            print("\n🎉 SUCCESS! User deletion worked!")
+            print("\n SUCCESS! User deletion worked!")
             return True
         elif response.status_code == 400:
-            print("\n❌ Still getting 400 error - checking alternative formats...")
+            print("\n Still getting 400 error - checking alternative formats...")
             return False
         elif response.status_code == 404:
-            print("\n❌ 404 - Endpoint not found")
+            print("\n 404 - Endpoint not found")
             return False
         else:
-            print(f"\n❓ Unexpected status code: {response.status_code}")
+            print(f"\n Unexpected status code: {response.status_code}")
             return False
             
     except Exception as e:

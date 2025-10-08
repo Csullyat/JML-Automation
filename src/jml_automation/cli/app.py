@@ -29,27 +29,83 @@ def terminate():
 # ========== ONBOARDING COMMANDS ==========
 
 @onboard.command("run")
-@click.option("--ticket-id", required=True, help="SolarWinds ticket ID")
+@click.option("--ticket-id", required=True, help="SolarWinds ticket ID(s) - can be single ticket or comma-separated list")
 @click.option("--dry-run/--no-dry-run", default=True, help="Dry run mode (default: True)")
 def onboard_run(ticket_id, dry_run):
-    """Run onboarding for a specific ticket."""
-    click.echo(f" Running onboarding for ticket {ticket_id} (dry_run={dry_run})")
+    """Run onboarding for one or more tickets (comma-separated)."""
+    
+    # Parse ticket IDs (support both single and comma-separated)
+    ticket_ids = [tid.strip() for tid in ticket_id.split(',')]
+    
+    if len(ticket_ids) == 1:
+        click.echo(f" Running onboarding for ticket {ticket_ids[0]} (dry_run={dry_run})")
+    else:
+        click.echo(f" Running onboarding for {len(ticket_ids)} tickets (dry_run={dry_run})")
+        click.echo(f" Tickets: {', '.join(ticket_ids)}")
+    
+    overall_success = True
+    results = []
     
     try:
         from jml_automation.workflows.onboarding import run
-        result = run(
-            ticket_id=ticket_id,
-            ticket_raw=None,
-            dry_run=dry_run,
-            push_domo=False
-        )
-        if result == 0:
-            click.echo("SUCCESS: Onboarding completed successfully")
-        else:
-            click.echo(f"ERROR: Onboarding failed with code {result}")
-        return result
+        
+        for i, tid in enumerate(ticket_ids, 1):
+            if len(ticket_ids) > 1:
+                click.echo(f"\n{'='*60}")
+                click.echo(f" PROCESSING TICKET {i}/{len(ticket_ids)}: {tid}")
+                click.echo(f"{'='*60}")
+            
+            try:
+                result = run(
+                    ticket_id=tid,
+                    ticket_raw=None,
+                    dry_run=dry_run,
+                    push_domo=False
+                )
+                
+                if result == 0:
+                    click.echo(f"SUCCESS: Onboarding completed successfully for ticket {tid}")
+                    results.append({'ticket': tid, 'success': True, 'result': result})
+                else:
+                    click.echo(f"ERROR: Onboarding failed for ticket {tid} with code {result}")
+                    results.append({'ticket': tid, 'success': False, 'result': result})
+                    overall_success = False
+                    
+            except Exception as e:
+                click.echo(f"ERROR: Fatal error in onboarding for ticket {tid}: {e}")
+                results.append({'ticket': tid, 'success': False, 'error': str(e)})
+                overall_success = False
+        
+        # Summary for multiple tickets
+        if len(ticket_ids) > 1:
+            click.echo(f"\n{'='*60}")
+            click.echo(f" BATCH ONBOARDING SUMMARY")
+            click.echo(f"{'='*60}")
+            
+            successful = [r for r in results if r['success']]
+            failed = [r for r in results if not r['success']]
+            
+            click.echo(f"Total tickets processed: {len(ticket_ids)}")
+            click.echo(f"Successful: {len(successful)}")
+            click.echo(f"Failed: {len(failed)}")
+            
+            if successful:
+                click.echo(f"\nSuccessful tickets:")
+                for r in successful:
+                    click.echo(f"  SUCCESS: {r['ticket']}")
+            
+            if failed:
+                click.echo(f"\nFailed tickets:")
+                for r in failed:
+                    error_info = r.get('error', f"Exit code {r.get('result', 'unknown')}")
+                    click.echo(f"  ERROR: {r['ticket']} - {error_info}")
+            
+            click.echo(f"\nOverall result: {'SUCCESS' if overall_success else 'PARTIAL_SUCCESS'}")
+        
+        return 0 if overall_success else 1
+        
     except Exception as e:
-        click.echo(f"ERROR: Fatal error in onboarding: {e}")
+        click.echo(f"ERROR: Fatal error in batch onboarding: {e}")
         return 1
 
 # ========== TERMINATION COMMANDS ==========
@@ -101,21 +157,131 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
                 click.echo("WARNING: Termination completed with issues")
                 return 1
         else:
-            # Ticket-based termination
-            click.echo(f" Running termination for ticket {ticket_id}")
-            from jml_automation.workflows.termination import run
-            result = run(
-                ticket_id=ticket_id,
-                ticket_raw=None,
-                dry_run=test_mode
-            )
+            # Ticket-based termination - use full multi-phase workflow
+            click.echo(f" Running full multi-phase termination for ticket {ticket_id}")
+            from jml_automation.workflows.termination import TerminationWorkflow
             
-            if result == 0:
-                click.echo("SUCCESS: Termination completed successfully")
-                return 0
-            else:
-                click.echo("WARNING: Termination completed with issues")
-                return result
+            workflow = TerminationWorkflow()
+            
+            # Parse ticket to get user details
+            from jml_automation.parsers.solarwinds_parser import fetch_ticket, parse_ticket
+            try:
+                raw_ticket = fetch_ticket(ticket_id)
+                ticket = parse_ticket(raw_ticket)
+                
+                if hasattr(ticket, 'user') and ticket.user:
+                    user_email = ticket.user.email
+                else:
+                    # Extract email from raw ticket if parsing fails
+                    from jml_automation.parsers.solarwinds_parser import extract_user_email_from_ticket
+                    user_email = extract_user_email_from_ticket(raw_ticket)
+                
+                if hasattr(ticket, 'manager') and ticket.manager:
+                    manager_email = ticket.manager.email
+                else:
+                    # Extract manager email from raw ticket if parsing fails
+                    from jml_automation.parsers.solarwinds_parser import extract_manager_email_from_ticket
+                    manager_email = extract_manager_email_from_ticket(raw_ticket)
+                
+                if not user_email:
+                    click.echo("ERROR: Could not extract user email from ticket")
+                    return 1
+                
+                click.echo(f" User: {user_email}")
+                click.echo(f" Manager: {manager_email or 'Not specified'}")
+                
+                # Run full multi-phase termination with all services
+                if test_mode:
+                    click.echo(" Running dry run of full 9-step termination workflow")
+                    # Show the plan but don't execute
+                    print("=== Full Termination Plan ===")
+                    print(f"User: {user_email}")
+                    print(f"Ticket: {ticket_id}")
+                    print(f"Manager: {manager_email or 'Not specified'}")
+                    print("\nPhases:")
+                    print(" 1. Okta: Clear sessions & deactivate user")
+                    print(" 2. Google Workspace: Suspend user & transfer data")
+                    print(" 3. Microsoft 365: Convert mailbox & remove licenses")
+                    print(" 4. Adobe: Remove licenses")
+                    print(" 5. Zoom: Remove user")
+                    print(" 6. Domo: Remove user")
+                    print(" 7. Lucidchart: Remove user")
+                    print(" 8. Workato: Remove user")
+                    print(" 9. SynQ Prox: Remove user")
+                    print("10. Remove from app-specific Okta groups")
+                    print("11. SolarWinds: Update ticket to 'In Progress'")
+                    return 0
+                else:
+                    click.echo(" Running LIVE multi-phase termination")
+                    click.echo("")
+                    
+                    # Run with progress callback
+                    def progress_callback(step: str, status: str, details: str = ""):
+                        if status == "starting":
+                            click.echo(f"{step}...")
+                        elif status == "success":
+                            click.echo(f"{step} - SUCCESS")
+                            if details:
+                                click.echo(f"   └─ {details}")
+                        elif status == "error":
+                            click.echo(f"{step} - ERROR")
+                            if details:
+                                click.echo(f"   └─ {details}")
+                        elif status == "warning":
+                            click.echo(f"{step} - WARNING")
+                            if details:
+                                click.echo(f"   └─ {details}")
+                        elif status == "skipped":
+                            click.echo(f"{step} - SKIPPED")
+                            if details:
+                                click.echo(f"   └─ {details}")
+                    
+                    results = workflow.execute_multi_phase_termination(
+                        user_email=user_email,
+                        manager_email=manager_email,
+                        ticket_id=ticket_id,
+                        progress_callback=progress_callback
+                    )
+                    
+                    click.echo("")
+                    click.echo("=== TERMINATION SUMMARY ===")
+                    
+                    if results:
+                        # Show phase results
+                        for phase in ["okta", "google", "microsoft", "adobe", "zoom", "domo", "lucidchart", "workato", "synqprox"]:
+                            if phase in results.get("phase_success", {}):
+                                success = results["phase_success"][phase]
+                                icon = "PASS" if success else "FAIL"
+                                click.echo(f"{icon} {phase.title()}: {'SUCCESS' if success else 'FAILED'}")
+                        
+                        # Show errors if any
+                        if results.get("errors"):
+                            click.echo("")
+                            click.echo("ERRORS ENCOUNTERED:")
+                            for error in results["errors"]:
+                                click.echo(f"   • {error}")
+                        
+                        # Show warnings if any  
+                        if results.get("warnings"):
+                            click.echo("")
+                            click.echo("WARNINGS:")
+                            for warning in results["warnings"]:
+                                click.echo(f"   • {warning}")
+                        
+                        click.echo("")
+                        if results.get('overall_success'):
+                            click.echo("SUCCESS: Multi-phase termination completed successfully")
+                            return 0
+                        else:
+                            click.echo("WARNING: Multi-phase termination completed with issues")
+                            return 1
+                    else:
+                        click.echo("ERROR: Multi-phase termination failed to return results")
+                        return 1
+                        
+            except Exception as parse_error:
+                click.echo(f"ERROR: Failed to parse ticket: {parse_error}")
+                return 1
             
     except Exception as e:
         click.echo(f"ERROR: Fatal error in termination: {e}")

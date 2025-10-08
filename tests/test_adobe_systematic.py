@@ -34,11 +34,11 @@ def test_adobe_payload_variations():
     
     token_response = requests.post(token_url, data=token_data, timeout=30)
     if token_response.status_code != 200:
-        print(f"❌ Token failed: {token_response.status_code}")
+        print(f" Token failed: {token_response.status_code}")
         return
     
     token = token_response.json().get('access_token')
-    print(f"✅ OAuth token obtained successfully")
+    print(f" OAuth token obtained successfully")
     
     # Correct endpoint URL (from our testing)
     action_url = f"https://usermanagement.adobe.io/v2/usermanagement/action/{org_id}"
@@ -87,17 +87,17 @@ def test_adobe_payload_variations():
             )
             
             if response.status_code == 200:
-                print(f"    🎉 SUCCESS! User deletion worked!")
+                print(f"     SUCCESS! User deletion worked!")
                 print(f"    Response: {response.text}")
                 return True
             elif response.status_code == 400:
                 error_text = response.text[:100].replace('\n', ' ')
-                print(f"    ❌ 400: {error_text}...")
+                print(f"     400: {error_text}...")
             else:
-                print(f"    ❓ {response.status_code}: {response.text[:50]}...")
+                print(f"     {response.status_code}: {response.text[:50]}...")
                 
         except Exception as e:
-            print(f"    💥 Error: {str(e)[:50]}...")
+            print(f"     Error: {str(e)[:50]}...")
     
     # Test 2: Payload structure variations
     print(f"\n2. Testing payload structure variations...")
@@ -202,17 +202,17 @@ def test_adobe_payload_variations():
             )
             
             if response.status_code == 200:
-                print(f"    🎉 SUCCESS! Payload variant {i} worked!")
+                print(f"     SUCCESS! Payload variant {i} worked!")
                 print(f"    Response: {response.text}")
                 return True
             elif response.status_code == 400:
                 error_text = response.text[:100].replace('\n', ' ')
-                print(f"    ❌ 400: {error_text}...")
+                print(f"     400: {error_text}...")
             else:
-                print(f"    ❓ {response.status_code}: {response.text[:50]}...")
+                print(f"     {response.status_code}: {response.text[:50]}...")
                 
         except Exception as e:
-            print(f"    💥 Error: {str(e)[:50]}...")
+            print(f"     Error: {str(e)[:50]}...")
     
     # Test 3: Raw requests with different JSON serialization
     print(f"\n3. Testing raw JSON serialization...")
@@ -249,19 +249,19 @@ def test_adobe_payload_variations():
             )
             
             if response.status_code == 200:
-                print(f"    🎉 SUCCESS! JSON variant {i} worked!")
+                print(f"     SUCCESS! JSON variant {i} worked!")
                 print(f"    Response: {response.text}")
                 return True
             elif response.status_code == 400:
                 error_text = response.text[:100].replace('\n', ' ')
-                print(f"    ❌ 400: {error_text}...")
+                print(f"     400: {error_text}...")
             else:
-                print(f"    ❓ {response.status_code}: {response.text[:50]}...")
+                print(f"     {response.status_code}: {response.text[:50]}...")
                 
         except Exception as e:
-            print(f"    💥 Error: {str(e)[:50]}...")
+            print(f"     Error: {str(e)[:50]}...")
     
-    print(f"\n❌ All payload variations failed. This suggests:")
+    print(f"\n All payload variations failed. This suggests:")
     print(f"   1. Adobe Developer Console permissions may be insufficient")
     print(f"   2. API endpoint or authentication method may have changed")
     print(f"   3. Organization-specific configuration may be required")
@@ -282,9 +282,9 @@ if __name__ == "__main__":
     success = test_adobe_payload_variations()
     
     if success:
-        print(f"\n🎉 Adobe deletion test successful!")
+        print(f"\n Adobe deletion test successful!")
     else:
-        print(f"\n📋 Next steps:")
+        print(f"\n Next steps:")
         print(f"   • Review Adobe Developer Console project permissions")
         print(f"   • Check latest Adobe User Management API documentation")
         print(f"   • Test with Adobe's official Postman collection")

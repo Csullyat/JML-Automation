@@ -69,7 +69,7 @@ def test_config() -> bool:
         if token:
             print(f"✓ Retrieved SAMANAGE_TOKEN (length: {len(token)})")
         else:
-            print("⚠ SAMANAGE_TOKEN not found (check 1Password CLI)")
+            print(" SAMANAGE_TOKEN not found (check 1Password CLI)")
         
         print("\nSUCCESS: Configuration test passed!")
         return True
@@ -127,9 +127,9 @@ def test_extractor(config: Config) -> bool:
             if page_1:
                 print(f"✓ Can connect to SolarWinds (fetched {len(page_1)} tickets from page 1)")
             else:
-                print("⚠ Could not fetch tickets (check token/connection)")
+                print(" Could not fetch tickets (check token/connection)")
         except Exception as e:
-            print(f"⚠ SolarWinds connection error: {e}")
+            print(f" SolarWinds connection error: {e}")
         
         print("\nSUCCESS: Extractor test completed!")
         return True

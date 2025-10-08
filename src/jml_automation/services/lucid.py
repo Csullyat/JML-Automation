@@ -227,6 +227,96 @@ class LucidchartService(BaseService):
         result = self.execute_termination(email)
         return result.get('success', False)
     
+    def execute_complete_termination(self, user_email: str, manager_email: str) -> Dict:
+        """
+        Execute complete Lucidchart termination following the termination procedure.
+        
+        Lucidchart Termination Steps:
+        1. Log into Lucidchart Admin
+        2. Users → Search user → Delete user
+        3. Transfer documents to manager if required
+        4. Remove from "SSO-LucidChart" group in Okta (handled by workflow)
+        
+        Args:
+            user_email: Email of user to terminate
+            manager_email: Manager email for document transfer
+            
+        Returns:
+            Dict with success status, actions taken, and any errors
+        """
+        actions_taken = []
+        errors = []
+        warnings = []
+        
+        try:
+            logger.info(f"Starting Lucidchart termination for {user_email}")
+            
+            # Step 1: Find user in Lucidchart
+            user_info = self.find_user_by_email(user_email)
+            if not user_info:
+                logger.info(f"User {user_email} not found in Lucidchart - no termination needed")
+                return {
+                    'success': True,
+                    'actions': ['User not found in Lucidchart - no action needed'],
+                    'errors': errors,
+                    'warnings': warnings
+                }
+            
+            actions_taken.append(f"Found user in Lucidchart: {user_email}")
+            
+            # Step 2: Transfer documents to manager (if specified)
+            if manager_email:
+                logger.info(f"Attempting to transfer documents to manager: {manager_email}")
+                # Note: Document transfer would need to be implemented based on Lucidchart API
+                # For now, we'll note this as a manual step
+                warnings.append(f"Document transfer to {manager_email} may require manual intervention")
+                actions_taken.append(f"Noted document transfer requirement to {manager_email}")
+            else:
+                warnings.append("No manager specified - document transfer not performed")
+            
+            # Step 3: Delete user from Lucidchart
+            logger.info(f"Deleting Lucidchart user: {user_email}")
+            deletion_success = self.delete_user(user_email)
+            
+            if deletion_success:
+                actions_taken.append(f"Deleted Lucidchart user: {user_email}")
+                logger.info(f"Successfully deleted Lucidchart user: {user_email}")
+                
+                # Step 4: Verify deletion
+                verification_result = self.verify_user_deleted(user_email)
+                if verification_result:
+                    actions_taken.append("Verified user deletion from Lucidchart")
+                else:
+                    warnings.append("User deletion not verified - may still exist in Lucidchart")
+                
+                return {
+                    'success': True,
+                    'actions': actions_taken,
+                    'errors': errors,
+                    'warnings': warnings
+                }
+            else:
+                error_msg = f"Failed to delete Lucidchart user: {user_email}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+                return {
+                    'success': False,
+                    'actions': actions_taken,
+                    'errors': errors,
+                    'warnings': warnings
+                }
+                
+        except Exception as e:
+            error_msg = f"Error in Lucidchart termination for {user_email}: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return {
+                'success': False,
+                'actions': actions_taken,
+                'errors': errors,
+                'warnings': warnings
+            }
+
     def test_connection(self):
         """Legacy method - use test_connectivity instead."""
         return self.test_connectivity()

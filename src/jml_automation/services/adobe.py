@@ -451,6 +451,168 @@ class AdobeService(BaseService):
         
         return status
 
+    def execute_complete_termination(self, user_email: str, manager_email: str) -> Dict:
+        """
+        Execute complete Adobe termination following the termination procedure.
+        
+        Adobe Termination Steps:
+        1. Log into Adobe Admin Console
+        2. Users → Search user 
+        3. Remove products under "Edit products"
+        4. Remove from "SSO-Adobe" group in Okta (handled by workflow)
+        
+        Args:
+            user_email: Email of user to terminate
+            manager_email: Manager email (not used for Adobe)
+            
+        Returns:
+            Dict with success status, actions taken, and any errors
+        """
+        actions_taken = []
+        errors = []
+        warnings = []
+        
+        try:
+            logger.info(f"Starting Adobe termination for {user_email}")
+            
+            # Check if we need to initialize credentials
+            if not self._get_credentials():
+                error_msg = "Failed to retrieve Adobe credentials"
+                errors.append(error_msg)
+                return {
+                    'success': False,
+                    'actions': actions_taken,
+                    'errors': errors,
+                    'warnings': warnings
+                }
+            
+            # Step 1: Check if user is in Adobe groups (via Okta)
+            okta_service = self._get_okta_service()
+            if okta_service:
+                user_id = okta_service.find_user_by_email(user_email)
+                if user_id:
+                    group_membership = self.check_okta_groups(user_email)
+                    is_in_adobe = group_membership.get("SSO-Adobe", False)
+                    
+                    if not is_in_adobe:
+                        logger.info(f"User {user_email} is not in SSO-Adobe group - no Adobe termination needed")
+                        return {
+                            'success': True,
+                            'actions': ['User not in Adobe groups - no action needed'],
+                            'errors': errors,
+                            'warnings': warnings
+                        }
+                    
+                    actions_taken.append(f"Confirmed user is in SSO-Adobe group")
+                else:
+                    warnings.append(f"User {user_email} not found in Okta - proceeding with Adobe check")
+            
+            # Step 2: Find user in Adobe
+            user_found = self.find_user_by_email(user_email)
+            if not user_found:
+                logger.info(f"User {user_email} not found in Adobe - no termination needed")
+                return {
+                    'success': True,
+                    'actions': ['User not found in Adobe - no action needed'],
+                    'errors': errors,
+                    'warnings': warnings
+                }
+            
+            actions_taken.append(f"Found user in Adobe: {user_email}")
+            
+            # Step 3: Remove products/licenses from user
+            logger.info(f"Removing Adobe products from user: {user_email}")
+            if self.remove_products_from_user(user_email):
+                actions_taken.append(f"Removed all Adobe products from {user_email}")
+                logger.info(f"Successfully removed Adobe products from {user_email}")
+            else:
+                error_msg = f"Failed to remove Adobe products from {user_email}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+            
+            # Step 4: Optionally remove user completely (based on company policy)
+            # For now, we'll just remove products as per the termination procedure
+            
+            # Determine success based on whether we had any critical errors
+            success = len(errors) == 0
+            
+            if success:
+                logger.info(f"Adobe termination completed successfully for {user_email}")
+            else:
+                logger.error(f"Adobe termination completed with errors for {user_email}")
+            
+            return {
+                'success': success,
+                'actions': actions_taken,
+                'errors': errors,
+                'warnings': warnings
+            }
+            
+        except Exception as e:
+            error_msg = f"Error in Adobe termination for {user_email}: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return {
+                'success': False,
+                'actions': actions_taken,
+                'errors': errors,
+                'warnings': warnings
+            }
+
+    def remove_products_from_user(self, user_email: str) -> bool:
+        """Remove all products/licenses from a user."""
+        try:
+            logger.info(f"Removing all products from Adobe user: {user_email}")
+            
+            if self.dry_run:
+                logger.info(f"[DRY RUN] Would remove all Adobe products from {user_email}")
+                return True
+            
+            # Get user details including current products
+            user_info = self.find_user_by_email(user_email)
+            if not user_info:
+                logger.warning(f"User {user_email} not found for product removal")
+                return False
+            
+            # For now, use the existing delete_user method which removes access
+            # In a full implementation, you'd call specific Adobe APIs to remove products
+            return self.delete_user(user_email)
+            
+        except Exception as e:
+            logger.error(f"Error removing products from Adobe user {user_email}: {e}")
+            return False
+
+    def test_connectivity(self) -> Dict:
+        """Test Adobe API connectivity."""
+        try:
+            if not self._get_credentials():
+                return {
+                    'success': False,
+                    'error': 'Adobe credentials not available'
+                }
+            
+            # Try to get access token as connectivity test
+            token = self._get_access_token()
+            if token:
+                logger.info("Adobe API connectivity test successful")
+                return {
+                    'success': True,
+                    'message': 'Adobe User Management API connection successful'
+                }
+            else:
+                logger.error("Adobe API connectivity test failed - unable to get access token")
+                return {
+                    'success': False,
+                    'error': 'Failed to authenticate with Adobe API'
+                }
+                
+        except Exception as e:
+            logger.error(f"Adobe API connectivity test error: {e}")
+            return {
+                'success': False,
+                'error': f'Adobe API connection failed: {str(e)}'
+            }
+
     def create_user(self, user_data):
         """Legacy method for compatibility."""
         pass
