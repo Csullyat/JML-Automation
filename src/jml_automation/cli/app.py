@@ -111,7 +111,7 @@ def onboard_run(ticket_id, dry_run):
 # ========== TERMINATION COMMANDS ==========
 
 @terminate.command("run")
-@click.option("--ticket-id", help="SolarWinds ticket ID to process")
+@click.option("--ticket-id", help="SolarWinds ticket ID(s) to process (single ticket or comma-separated list)")
 @click.option("--user-email", help="Email of user to terminate directly")
 @click.option("--manager-email", help="Email of manager for delegation")
 @click.option("--phases", help="Comma-separated phases to run (okta,microsoft,google,zoom)")
@@ -150,18 +150,77 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
                 ticket_id=ticket_id
             )
             
-            if results and results.get('overall_success'):
+                        if results and results.get('overall_success'):
                 click.echo("SUCCESS: Termination completed successfully")
                 return 0
             else:
                 click.echo("WARNING: Termination completed with issues")
                 return 1
         else:
-            # Ticket-based termination - use full multi-phase workflow
-            click.echo(f" Running full multi-phase termination for ticket {ticket_id}")
-            from jml_automation.workflows.termination import TerminationWorkflow
-            
-            workflow = TerminationWorkflow()
+            # Ticket-based termination - support multiple tickets
+            # Check if multiple tickets provided (comma-separated)
+            if ',' in ticket_id:
+                # Multiple tickets mode
+                click.echo(f" Running full multi-phase termination for multiple tickets: {ticket_id}")
+                
+                from jml_automation.workflows.termination import TerminationWorkflow
+                workflow = TerminationWorkflow()
+                
+                if test_mode:
+                    click.echo("TEST: TEST MODE: Multiple ticket termination (showing plan only)")
+                    ticket_list = [tid.strip() for tid in ticket_id.split(',')]
+                    print("=== Multiple Ticket Termination Plan ===")
+                    print(f"Tickets: {', '.join(ticket_list)}")
+                    print(f"Total tickets: {len(ticket_list)}")
+                    print("\nFor each ticket, will execute:")
+                    print(" 1. Fetch ticket from SolarWinds")
+                    print(" 2. Extract user and manager emails")
+                    print(" 3. Run full 9-step termination workflow")
+                    print(" 4. Update ticket status")
+                    print("\nPhases per ticket:")
+                    print(" - Okta: Clear sessions & deactivate user")
+                    print(" - Google Workspace: Suspend user & transfer data")
+                    print(" - Microsoft 365: Convert mailbox & remove licenses")
+                    print(" - Zoom: Remove user")
+                    print(" - Domo: Remove user (if in groups)")
+                    print(" - Lucidchart: Remove user (if in groups)")
+                    print(" - Workato: Remove user (if in groups)")
+                    print(" - SynQ Prox: Remove user")
+                    print(" - Remove from app-specific Okta groups")
+                    return 0
+                else:
+                    click.echo(" PRODUCTION MODE: Multiple ticket termination")
+                    click.echo("WARNING: This will perform actual termination for ALL tickets!")
+                    
+                    results = workflow.execute_multiple_ticket_terminations(ticket_id)
+                    
+                    # Display results
+                    click.echo("\n=== MULTIPLE TICKET TERMINATION RESULTS ===")
+                    click.echo(f"Total tickets: {results['total_tickets']}")
+                    click.echo(f"Successful: {results['successful_tickets']}")
+                    click.echo(f"Failed: {results['failed_tickets']}")
+                    click.echo(f"Success rate: {results.get('success_rate', 0):.1f}%")
+                    click.echo(f"Duration: {results.get('duration', 0):.1f} seconds")
+                    
+                    click.echo("\nIndividual results:")
+                    for tid, result in results['ticket_results'].items():
+                        status = "SUCCESS" if result.get('overall_success') else "FAILED"
+                        user = result.get('user_email', 'Unknown')
+                        error_count = len(result.get('errors', []))
+                        click.echo(f"  {status}: Ticket {tid} - {user} ({error_count} errors)")
+                    
+                    if results.get('success'):
+                        click.echo("\nSUCCESS: Multiple ticket termination completed successfully")
+                        return 0
+                    else:
+                        click.echo("\nWARNING: Multiple ticket termination completed with issues")
+                        return 1
+            else:
+                # Single ticket mode (existing functionality)
+                click.echo(f" Running full multi-phase termination for ticket {ticket_id}")
+                from jml_automation.workflows.termination import TerminationWorkflow
+                
+                workflow = TerminationWorkflow()
             
             # Parse ticket to get user details
             from jml_automation.parsers.solarwinds_parser import fetch_ticket, parse_ticket

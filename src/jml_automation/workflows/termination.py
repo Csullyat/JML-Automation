@@ -1427,8 +1427,150 @@ def main():
             workflow_results['overall_success'] = False
             return workflow_results
     
+        def execute_multiple_ticket_terminations(self, ticket_numbers: str) -> Dict[str, Any]:
+        """
+        Execute terminations for multiple comma-separated ticket numbers.
+        Each ticket is processed individually with its own complete workflow.
+        
+        Args:
+            ticket_numbers: Comma-separated ticket numbers (e.g., "12345,12346,12347")
+            
+        Returns:
+            Dictionary with results for each ticket
+        """
+        logger.info(f"" STARTING MULTIPLE TICKET TERMINATION WORKFLOW")
+        logger.info("=" * 80)
+        
+        # Parse ticket numbers
+        ticket_list = [ticket.strip() for ticket in ticket_numbers.split(',') if ticket.strip()]
+        
+        if not ticket_list:
+            logger.error("No valid ticket numbers provided")
+            return {
+                'success': False,
+                'error': 'No valid ticket numbers provided',
+                'ticket_results': {}
+            }
+        
+        logger.info(f"Processing {len(ticket_list)} tickets: {', '.join(ticket_list)}")
+        
+        batch_results = {
+            'success': True,
+            'total_tickets': len(ticket_list),
+            'successful_tickets': 0,
+            'failed_tickets': 0,
+            'ticket_results': {},
+            'start_time': datetime.now(),
+            'summary': []
+        }
+        
+        try:
+            # Process each ticket individually
+            for i, ticket_id in enumerate(ticket_list, 1):
+                logger.info(f"" PROCESSING TICKET {i}/{len(ticket_list)}: {ticket_id}")
+                logger.info("-" * 60)
+                
+                try:
+                    # Execute comprehensive termination for this ticket
+                    ticket_result = self.execute_comprehensive_termination_from_ticket(ticket_id)
+                    
+                    # Store result
+                    batch_results['ticket_results'][ticket_id] = ticket_result
+                    
+                    # Update counters
+                    if ticket_result.get('overall_success', False):
+                        batch_results['successful_tickets'] += 1
+                        logger.info(f"SUCCESS: Ticket {ticket_id} completed successfully")
+                        batch_results['summary'].append(f"SUCCESS: Ticket {ticket_id}: {ticket_result.get('user_email', 'Unknown user')}")
+                    else:
+                        batch_results['failed_tickets'] += 1
+                        logger.error(f"ERROR: Ticket {ticket_id} completed with errors")
+                        batch_results['summary'].append(f"ERROR: Ticket {ticket_id}: {ticket_result.get('user_email', 'Unknown user')} - {len(ticket_result.get('errors', []))} errors")
+                    
+                    # Brief pause between tickets to avoid overwhelming systems
+                    if i < len(ticket_list):  # Don't pause after the last ticket
+                        logger.info(f"Pausing 3 seconds before next ticket...")
+                        time.sleep(3)
+                        
+                except Exception as e:
+                    logger.error(f"CRITICAL ERROR processing ticket {ticket_id}: {e}")
+                    batch_results['failed_tickets'] += 1
+                    batch_results['ticket_results'][ticket_id] = {
+                        'ticket_id': ticket_id,
+                        'overall_success': False,
+                        'error': f'Critical error: {str(e)}',
+                        'errors': [f'Critical error: {str(e)}']
+                    }
+                    batch_results['summary'].append(f"CRITICAL ERROR: Ticket {ticket_id}: {str(e)}")
+            
+            # Calculate final results
+            batch_results['end_time'] = datetime.now()
+            batch_results['duration'] = (batch_results['end_time'] - batch_results['start_time']).total_seconds()
+            batch_results['success_rate'] = (batch_results['successful_tickets'] / batch_results['total_tickets']) * 100
+            
+            # Overall success if at least 80% of tickets succeeded
+            batch_results['success'] = batch_results['success_rate'] >= 80
+            
+            # Log final summary
+            logger.info("=" * 80)
+            logger.info("" MULTIPLE TICKET TERMINATION COMPLETED")
+            logger.info("=" * 80)
+            logger.info(f"Total Tickets: {batch_results['total_tickets']}")
+            logger.info(f"Successful: {batch_results['successful_tickets']}")
+            logger.info(f"Failed: {batch_results['failed_tickets']}")
+            logger.info(f"Success Rate: {batch_results['success_rate']:.1f}%")
+            logger.info(f"Duration: {batch_results['duration']:.1f} seconds")
+            
+            # Log individual ticket results
+            logger.info("\nINDIVIDUAL TICKET RESULTS:")
+            for ticket_id, result in batch_results['ticket_results'].items():
+                status = "SUCCESS" if result.get('overall_success') else "FAILED"
+                user = result.get('user_email', 'Unknown')
+                error_count = len(result.get('errors', []))
+                logger.info(f"  {status}: Ticket {ticket_id} - {user} ({error_count} errors)")
+            
+            return batch_results
+            
+        except Exception as e:
+            logger.error(f"CRITICAL ERROR in multiple ticket processing: {e}")
+            batch_results['success'] = False
+            batch_results['error'] = f'Critical batch error: {str(e)}'
+            batch_results['end_time'] = datetime.now()
+            return batch_results
+    
     logger.info("Termination automation completed")
 
 
+def process_multiple_tickets(ticket_numbers: str) -> Dict[str, Any]:
+    """
+    Convenience function to process multiple comma-separated tickets.
+    
+    Args:
+        ticket_numbers: Comma-separated ticket numbers (e.g., "12345,12346,12347")
+        
+    Returns:
+        Dictionary with results for each ticket
+    """
+    workflow = TerminationWorkflow()
+    return workflow.execute_multiple_ticket_terminations(ticket_numbers)
+
+
 if __name__ == "__main__":
-    main()
+    # Check if multiple tickets provided
+    if len(sys.argv) > 1 and ',' in sys.argv[1]:
+        # Multiple tickets mode
+        ticket_numbers = sys.argv[1]
+        print(f"Processing multiple tickets: {ticket_numbers}")
+        
+        workflow = TerminationWorkflow()
+        results = workflow.execute_multiple_ticket_terminations(ticket_numbers)
+        
+        if results['success']:
+            print(f"\nSUCCESS: {results['successful_tickets']}/{results['total_tickets']} tickets completed successfully")
+            sys.exit(0)
+        else:
+            print(f"\nWARNING: {results['failed_tickets']}/{results['total_tickets']} tickets failed")
+            sys.exit(1)
+    else:
+        # Single ticket or other modes
+        main()
