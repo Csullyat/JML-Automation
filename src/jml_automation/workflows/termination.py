@@ -1476,7 +1476,7 @@ def main():
             workflow_results['overall_success'] = False
             return workflow_results
     
-        def execute_multiple_ticket_terminations(self, ticket_numbers: str) -> Dict[str, Any]:
+    def execute_multiple_ticket_terminations(self, ticket_numbers: str) -> Dict[str, Any]:
         """
         Execute terminations for multiple comma-separated ticket numbers.
         Each ticket is processed individually with its own complete workflow.
@@ -1487,7 +1487,7 @@ def main():
         Returns:
             Dictionary with results for each ticket
         """
-        logger.info(f"" STARTING MULTIPLE TICKET TERMINATION WORKFLOW")
+        logger.info("STARTING MULTIPLE TICKET TERMINATION WORKFLOW")
         logger.info("=" * 80)
         
         # Parse ticket numbers
@@ -1516,7 +1516,7 @@ def main():
         try:
             # Process each ticket individually
             for i, ticket_id in enumerate(ticket_list, 1):
-                logger.info(f"" PROCESSING TICKET {i}/{len(ticket_list)}: {ticket_id}")
+                logger.info(f"PROCESSING TICKET {i}/{len(ticket_list)}: {ticket_id}")
                 logger.info("-" * 60)
                 
                 try:
@@ -1562,7 +1562,7 @@ def main():
             
             # Log final summary
             logger.info("=" * 80)
-            logger.info("" MULTIPLE TICKET TERMINATION COMPLETED")
+            logger.info("MULTIPLE TICKET TERMINATION COMPLETED")
             logger.info("=" * 80)
             logger.info(f"Total Tickets: {batch_results['total_tickets']}")
             logger.info(f"Successful: {batch_results['successful_tickets']}")

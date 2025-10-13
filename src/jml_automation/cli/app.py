@@ -150,11 +150,13 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
                 ticket_id=ticket_id
             )
             
-                        if results and results.get('overall_success'):
-                click.echo("SUCCESS: Termination completed successfully")
+            if results and results.get('overall_success'):
+                duration = results.get('duration_seconds', 0)
+                click.echo(f"SUCCESS: Termination completed successfully in {duration:.1f} seconds")
                 return 0
             else:
-                click.echo("WARNING: Termination completed with issues")
+                duration = results.get('duration_seconds', 0) if results else 0
+                click.echo(f"WARNING: Termination completed with issues in {duration:.1f} seconds")
                 return 1
         else:
             # Ticket-based termination - support multiple tickets

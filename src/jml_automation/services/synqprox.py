@@ -10,7 +10,6 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
-from PIL import Image, ImageDraw
 
 from ..logger import logger
 from .base import BaseService
@@ -104,10 +103,6 @@ class SynqProxService(BaseService):
             # Wait for page to load
             time.sleep(3)
             
-            # Take a screenshot of the login page for debugging
-            self.driver.save_screenshot("screenshots/synqprox_login_page.png")
-            logger.info("Login page screenshot saved")
-            
             # Give the site additional time to fully load before entering credentials
             logger.info("Waiting 3 seconds for site to fully load before entering credentials...")
             time.sleep(3)
@@ -136,7 +131,6 @@ class SynqProxService(BaseService):
             """)
             
             logger.info(f"Email entry result: {login_success}")
-            self.driver.save_screenshot("screenshots/synqprox_01_email_entered.png")
             
             # CRITICAL: TAB out of email field to move to password field
             logger.info("PRESSING TAB to move from email to password field")
@@ -167,7 +161,6 @@ class SynqProxService(BaseService):
             """)
             
             logger.info(f"Password entry result: {password_success}")
-            self.driver.save_screenshot("screenshots/synqprox_02_password_entered.png")
             
             # Step 3: Now we should be in the password field - press Enter
             logger.info("PRESSING ENTER to submit form (should be focused on password field)")
@@ -179,12 +172,8 @@ class SynqProxService(BaseService):
                 logger.error(f"ERROR: Failed to send Enter key: {e}")
                 return False
             
-            # Take screenshot immediately after Enter
-            self.driver.save_screenshot("screenshots/synqprox_03_enter_sent.png")
-            
             # Wait and check if login worked
             time.sleep(3)
-            self.driver.save_screenshot("screenshots/synqprox_03_after_wait.png")
             
             if not login_success:
                 logger.error("Failed to complete login process properly")
@@ -192,10 +181,6 @@ class SynqProxService(BaseService):
             
             # Wait for login to complete and redirect to main app
             time.sleep(8)
-            
-            # Take screenshot after login attempt
-            self.driver.save_screenshot("screenshots/synqprox_after_login.png")
-            logger.info("After login screenshot saved")
             
             # For SYNQ Prox, the URL doesn't change after login, so we'll proceed
             # The deletion process will handle any login issues
@@ -268,68 +253,6 @@ class SynqProxService(BaseService):
                 except Exception as e:
                     logger.warning(f"Error cleaning up driver: {e}")
 
-    def _add_red_dot_to_screenshot(self, screenshot_path: str, x: int, y: int, step_name: str) -> str:
-        """
-        Add a red dot to show where we clicked on the screenshot.
-        
-        Args:
-            screenshot_path: Path to the original screenshot
-            x: X coordinate of click
-            y: Y coordinate of click  
-            step_name: Name of the step for labeling
-            
-        Returns:
-            Path to the modified screenshot with red dot
-        """
-        try:
-            # Open the screenshot
-            image = Image.open(screenshot_path)
-            draw = ImageDraw.Draw(image)
-            
-            # Draw a red circle (dot) at the click location
-            radius = 8
-            draw.ellipse([x-radius, y-radius, x+radius, y+radius], fill='red', outline='darkred', width=2)
-            
-            # Add text label
-            draw.text((x+15, y-10), step_name, fill='red')
-            
-            # Save the modified image
-            modified_path = screenshot_path.replace('.png', '_with_dot.png')
-            image.save(modified_path)
-            
-            logger.info(f"Added red dot at ({x}, {y}) to screenshot: {modified_path}")
-            return modified_path
-            
-        except Exception as e:
-            logger.error(f"Failed to add red dot to screenshot: {e}")
-            return screenshot_path
-
-    def _take_screenshot_with_dot(self, filename: str, x: int, y: int, step_name: str) -> None:
-        """
-        Take a screenshot and mark the click location with a red dot.
-        
-        Args:
-            filename: Name of the screenshot file
-            x: X coordinate where we clicked
-            y: Y coordinate where we clicked
-            step_name: Name of the step for debugging
-        """
-        try:
-            # Ensure screenshots directory exists
-            os.makedirs("screenshots", exist_ok=True)
-            
-            # Take the screenshot
-            screenshot_path = f"screenshots/{filename}"
-            self.driver.save_screenshot(screenshot_path)
-            
-            # Add red dot to show click location
-            modified_path = self._add_red_dot_to_screenshot(screenshot_path, x, y, step_name)
-            
-            logger.info(f"Screenshot with click marker saved: {modified_path}")
-            
-        except Exception as e:
-            logger.error(f"Failed to take screenshot with dot: {e}")
-
     def _delete_user_headless(self, user_email: str) -> bool:
         """
         Delete user using optimized headless mode coordinates.
@@ -389,9 +312,6 @@ class SynqProxService(BaseService):
                 """)
                 logger.info(f"USERS BUTTON CLICK RESULT: {result1}")
                 
-                # Take screenshot after users click with red dot
-                self._take_screenshot_with_dot("synqprox_step_1_users_click.png", users_x, users_y, "USERS CLICK")
-                
                 # Wait for users page to load
                 time.sleep(3)
 
@@ -426,9 +346,6 @@ class SynqProxService(BaseService):
                 """)
                 logger.info(f"SEARCH FIELD CLICK RESULT: {result2}")
 
-                # Take screenshot after search click with red dot
-                self._take_screenshot_with_dot("synqprox_step_2_search_click.png", search_field_x, search_field_y, "SEARCH CLICK")
-
                 # Wait for field to become active
                 time.sleep(3)
 
@@ -437,9 +354,6 @@ class SynqProxService(BaseService):
                 self.driver.switch_to.active_element.send_keys(user_email)
                 self.driver.switch_to.active_element.send_keys(Keys.ENTER)
                 logger.info(f"Entered email: {user_email} and pressed Enter")
-
-                # Take screenshot after email entry (no click for this step)
-                self.driver.save_screenshot("screenshots/synqprox_step_3_email_entry.png")
 
                 # Wait for search results
                 time.sleep(2)
@@ -478,9 +392,6 @@ class SynqProxService(BaseService):
                 """)
                 logger.info(f"DELETE BUTTON CLICK RESULT: {result4}")
 
-                # Take screenshot after delete click with red dot
-                self._take_screenshot_with_dot("synqprox_step_4_delete_click.png", delete_x, delete_y, "DELETE CLICK")
-
                 # Wait for confirmation dialog
                 time.sleep(2)
 
@@ -518,9 +429,6 @@ class SynqProxService(BaseService):
                 """)
                 logger.info(f"FINAL CONFIRMATION RESULT: {result5}")
 
-                # Take screenshot after final click with red dot
-                self._take_screenshot_with_dot("synqprox_step_5_final_click.png", confirm_x, confirm_y, "CONFIRM CLICK")
-
                 # Wait a moment for the action to complete
                 time.sleep(2)
 
@@ -529,11 +437,6 @@ class SynqProxService(BaseService):
                 
             except Exception as e:
                 logger.error(f"Error during user deletion steps: {e}")
-                # Take error screenshot
-                try:
-                    self.driver.save_screenshot("screenshots/synqprox_error.png")
-                except:
-                    pass
                 return False
                 
         except Exception as e:
