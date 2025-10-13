@@ -222,19 +222,19 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
                         elif status == "success":
                             click.echo(f"{step} - SUCCESS")
                             if details:
-                                click.echo(f"   └─ {details}")
+                                click.echo(f"   -> {details}")
                         elif status == "error":
                             click.echo(f"{step} - ERROR")
                             if details:
-                                click.echo(f"   └─ {details}")
+                                click.echo(f"   -> {details}")
                         elif status == "warning":
                             click.echo(f"{step} - WARNING")
                             if details:
-                                click.echo(f"   └─ {details}")
+                                click.echo(f"   -> {details}")
                         elif status == "skipped":
                             click.echo(f"{step} - SKIPPED")
                             if details:
-                                click.echo(f"   └─ {details}")
+                                click.echo(f"   -> {details}")
                     
                     results = workflow.execute_multi_phase_termination(
                         user_email=user_email,

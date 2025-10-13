@@ -307,7 +307,7 @@ class TerminationWorkflow:
             phases: List of phases to execute ['okta','microsoft','google','zoom','synqprox','domo','lucid','workato']
         """
         if phases is None:
-            phases = ["okta", "microsoft", "google", "zoom", "synqprox", "domo", "lucid", "workato"]
+            phases = ["okta", "microsoft", "google", "zoom", "synqprox", "domo", "adobe", "lucid", "workato"]
 
         logger.info(f"Starting multi-phase termination for {user_email}")
         logger.info(f"Phases to execute: {', '.join(phases)}")
@@ -540,11 +540,60 @@ class TerminationWorkflow:
                     termination_results["phase_success"]["domo"] = False
                     termination_results["errors"].append(f"Domo termination failed: {str(e)}")
 
-            # Phase 7: Lucid (group-dependent)
+            # Phase 7: Adobe (group-dependent)
+            if "adobe" in phases:
+                if progress_callback:
+                    progress_callback("Phase 7: Adobe", "starting")
+                logger.info(" PHASE 7: Adobe termination (group-dependent)")
+                try:
+                    # Check if user is in Adobe groups
+                    user = self.okta.get_user_by_email(user_email)
+                    if user:
+                        user_groups = self.okta.get_user_groups_by_names(user["id"], ["SSO-Adobe"])
+                        
+                        if user_groups:
+                            logger.info(f"User is in Adobe groups: {user_groups}, processing termination")
+                            adobe_results = self.adobe.execute_complete_termination(user_email, manager_email or "")
+                            termination_results["adobe_results"] = adobe_results
+                            
+                            if adobe_results.get("success"):
+                                # Remove from Adobe-specific Okta groups after successful termination
+                                group_removal = self.remove_from_app_specific_groups(user_email, "adobe")
+                                if group_removal.get("success"):
+                                    logger.info(f"Removed from Adobe Okta groups: {group_removal.get('removed_groups', [])}")
+                                else:
+                                    logger.warning(f"Failed to remove from Adobe Okta groups: {group_removal.get('error')}")
+                                
+                                if progress_callback:
+                                    progress_callback("Phase 7: Adobe", "success", "User removed from Adobe, Okta groups updated")
+                                termination_results["summary"].append("SUCCESS: Adobe: User removed, Okta groups updated")
+                                termination_results["phase_success"]["adobe"] = True
+                            else:
+                                if progress_callback:
+                                    progress_callback("Phase 7: Adobe", "error", f"Failed: {adobe_results.get('error', 'Unknown error')}")
+                                termination_results["summary"].append(f"ERROR: Adobe: {adobe_results.get('error', 'Unknown error')}")
+                                termination_results["phase_success"]["adobe"] = False
+                                termination_results["errors"].append(f"Adobe termination failed: {adobe_results.get('error')}")
+                        else:
+                            logger.info("User not in Adobe groups, skipping Adobe termination")
+                            if progress_callback:
+                                progress_callback("Phase 7: Adobe", "success", "User not in Adobe groups - skipped")
+                            termination_results["summary"].append("SUCCESS: Adobe: User not in groups - skipped")
+                            termination_results["phase_success"]["adobe"] = True
+                    else:
+                        logger.error(f"User {user_email} not found in Okta for Adobe check")
+                        termination_results["phase_success"]["adobe"] = False
+                        termination_results["errors"].append("User not found in Okta for Adobe group check")
+                except Exception as e:
+                    logger.error(f"Adobe termination failed: {e}")
+                    termination_results["phase_success"]["adobe"] = False
+                    termination_results["errors"].append(f"Adobe termination failed: {str(e)}")
+
+            # Phase 8: Lucid (group-dependent)
             if "lucid" in phases:
                 if progress_callback:
-                    progress_callback("Phase 7: Lucid", "starting")
-                logger.info(" PHASE 7: Lucid termination (group-dependent)")
+                    progress_callback("Phase 8: Lucid", "starting")
+                logger.info(" PHASE 8: Lucid termination (group-dependent)")
                 try:
                     # Check if user is in Lucid groups
                     user = self.okta.get_user_by_email(user_email)
@@ -589,11 +638,11 @@ class TerminationWorkflow:
                     termination_results["phase_success"]["lucid"] = False
                     termination_results["errors"].append(f"Lucid termination failed: {str(e)}")
 
-            # Phase 8: Workato (group-dependent)
+            # Phase 9: Workato (group-dependent)
             if "workato" in phases:
                 if progress_callback:
-                    progress_callback("Phase 8: Workato", "starting")
-                logger.info(" PHASE 8: Workato termination (group-dependent)")
+                    progress_callback("Phase 9: Workato", "starting")
+                logger.info(" PHASE 9: Workato termination (group-dependent)")
                 try:
                     # Check if user is in Workato groups
                     user = self.okta.get_user_by_email(user_email)

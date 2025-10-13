@@ -186,14 +186,18 @@ class GoogleTermination:
             logger.info(f"Step 1: Looking up user {user_email} in Google Workspace")
             user_info = self.get_user_info(user_email)
             if not user_info:
+                # User not found - this is actually SUCCESS (already not in Google)
+                duration = (datetime.now() - start_time).total_seconds()
+                logger.info(f"Google Workspace termination completed for {user_email} - user not found (already removed)")
                 return {
-                    'success': False,
+                    'success': True,
                     'user_email': user_email,
-                    'error': 'User not found in Google Workspace',
-                    'actions_completed': actions_completed,
-                    'actions_failed': ['User lookup failed'],
-                    'warnings': warnings,
-                    'errors': ['User not found']
+                    'message': 'User not found in Google Workspace - already terminated or never existed',
+                    'actions_completed': ['User verification - not found (success)'],
+                    'actions_failed': [],
+                    'warnings': ['User not found in Google Workspace'],
+                    'errors': [],
+                    'duration': f"{duration:.1f}s"
                 }
             
             user_name = user_info.get('name', {}).get('fullName', user_email)
