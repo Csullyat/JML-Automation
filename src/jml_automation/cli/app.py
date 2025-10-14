@@ -7,6 +7,7 @@ Supports onboarding and termination workflows with various execution modes.
 import click
 import sys
 import logging
+from datetime import datetime
 from typing import Optional, List
 
 logger = logging.getLogger(__name__)
@@ -165,9 +166,6 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
                 # Multiple tickets mode
                 click.echo(f" Running full multi-phase termination for multiple tickets: {ticket_id}")
                 
-                from jml_automation.workflows.termination import TerminationWorkflow
-                workflow = TerminationWorkflow()
-                
                 if test_mode:
                     click.echo("TEST: TEST MODE: Multiple ticket termination (showing plan only)")
                     ticket_list = [tid.strip() for tid in ticket_id.split(',')]
@@ -194,15 +192,94 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
                     click.echo(" PRODUCTION MODE: Multiple ticket termination")
                     click.echo("WARNING: This will perform actual termination for ALL tickets!")
                     
-                    results = workflow.execute_multiple_ticket_terminations(ticket_id)
+                    # Process multiple tickets directly
+                    ticket_list = [tid.strip() for tid in ticket_id.split(',')]
+                    
+                    results = {
+                        'total_tickets': len(ticket_list),
+                        'successful_tickets': 0,
+                        'failed_tickets': 0,
+                        'ticket_results': {},
+                        'start_time': datetime.now()
+                    }
+                    
+                    # Process each ticket
+                    for i, tid in enumerate(ticket_list, 1):
+                        click.echo(f"\n{'='*60}")
+                        click.echo(f" PROCESSING TICKET {i}/{len(ticket_list)}: {tid}")
+                        click.echo(f"{'='*60}")
+                        
+                        try:
+                            # Fetch and parse ticket using the same method as single tickets
+                            from jml_automation.parsers.solarwinds_parser import extract_user_email_from_ticket, extract_manager_email_from_ticket
+                            
+                            solarwinds_service = workflow.solarwinds
+                            raw_ticket = solarwinds_service.fetch_ticket(tid)
+                            
+                            if not raw_ticket:
+                                raise Exception(f"Could not fetch ticket {tid}")
+                            
+                            # Use the same working extraction methods as single tickets
+                            user_email = extract_user_email_from_ticket(raw_ticket)
+                            manager_email = extract_manager_email_from_ticket(raw_ticket)
+                            
+                            if not user_email:
+                                raise Exception(f"Could not extract user email from ticket {tid}")
+                            
+                            click.echo(f" User: {user_email}")
+                            click.echo(f" Manager: {manager_email}")
+                            
+                            # Execute multi-phase termination
+                            ticket_result = workflow.execute_multi_phase_termination(
+                                user_email=user_email,
+                                manager_email=manager_email,
+                                phases=phase_list,
+                                ticket_id=tid
+                            )
+                            
+                            # Store result
+                            results['ticket_results'][tid] = ticket_result
+                            
+                            # Update counters
+                            if ticket_result.get('overall_success', False):
+                                results['successful_tickets'] += 1
+                                duration = ticket_result.get('duration_seconds', 0)
+                                click.echo(f" SUCCESS: Ticket {tid} completed successfully in {duration:.1f}s")
+                            else:
+                                results['failed_tickets'] += 1
+                                duration = ticket_result.get('duration_seconds', 0)
+                                click.echo(f" ERROR: Ticket {tid} completed with errors in {duration:.1f}s")
+                            
+                            # Brief pause between tickets (except after the last one)
+                            if i < len(ticket_list):
+                                click.echo(f" Pausing 3 seconds before next ticket...")
+                                import time
+                                time.sleep(3)
+                                
+                        except Exception as e:
+                            click.echo(f" CRITICAL ERROR processing ticket {tid}: {e}")
+                            results['failed_tickets'] += 1
+                            results['ticket_results'][tid] = {
+                                'ticket_id': tid,
+                                'overall_success': False,
+                                'error': f'Critical error: {str(e)}',
+                                'errors': [f'Critical error: {str(e)}']
+                            }
+                    
+                    # Calculate final results
+                    results['end_time'] = datetime.now()
+                    results['duration'] = (results['end_time'] - results['start_time']).total_seconds()
+                    results['success_rate'] = (results['successful_tickets'] / results['total_tickets']) * 100 if results['total_tickets'] > 0 else 0
                     
                     # Display results
-                    click.echo("\n=== MULTIPLE TICKET TERMINATION RESULTS ===")
+                    click.echo(f"\n{'='*60}")
+                    click.echo(" MULTIPLE TICKET TERMINATION RESULTS")
+                    click.echo(f"{'='*60}")
                     click.echo(f"Total tickets: {results['total_tickets']}")
                     click.echo(f"Successful: {results['successful_tickets']}")
                     click.echo(f"Failed: {results['failed_tickets']}")
-                    click.echo(f"Success rate: {results.get('success_rate', 0):.1f}%")
-                    click.echo(f"Duration: {results.get('duration', 0):.1f} seconds")
+                    click.echo(f"Success rate: {results['success_rate']:.1f}%")
+                    click.echo(f"Duration: {results['duration']:.1f} seconds")
                     
                     click.echo("\nIndividual results:")
                     for tid, result in results['ticket_results'].items():
@@ -211,11 +288,14 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
                         error_count = len(result.get('errors', []))
                         click.echo(f"  {status}: Ticket {tid} - {user} ({error_count} errors)")
                     
-                    if results.get('success'):
-                        click.echo("\nSUCCESS: Multiple ticket termination completed successfully")
+                    # Overall success if at least 80% succeeded
+                    overall_success = results['success_rate'] >= 80
+                    
+                    if overall_success:
+                        click.echo(f"\nSUCCESS: Multiple ticket termination completed successfully in {results['duration']:.1f} seconds")
                         return 0
                     else:
-                        click.echo("\nWARNING: Multiple ticket termination completed with issues")
+                        click.echo(f"\nWARNING: Multiple ticket termination completed with issues in {results['duration']:.1f} seconds")
                         return 1
             else:
                 # Single ticket mode (existing functionality)

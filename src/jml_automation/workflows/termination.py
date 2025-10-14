@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 import logging
+import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple, Union
 
@@ -1586,8 +1587,6 @@ def main():
             batch_results['error'] = f'Critical batch error: {str(e)}'
             batch_results['end_time'] = datetime.now()
             return batch_results
-    
-    logger.info("Termination automation completed")
 
 
 def process_multiple_tickets(ticket_numbers: str) -> Dict[str, Any]:

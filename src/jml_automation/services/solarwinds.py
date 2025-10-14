@@ -171,7 +171,7 @@ class SolarWindsService:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import time
         
-        max_pages = 100  # Temporarily increased from 50 to search through 10,000 tickets
+        max_pages = 90  # Increased to 9,000 tickets to stay under SolarWinds 10k API limit
         per_page = 100
         max_workers = 25  # High concurrency for speed
         
