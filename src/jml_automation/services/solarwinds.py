@@ -349,9 +349,6 @@ class SolarWindsService:
         Returns:
             True if successful, False otherwise
         """
-        # DISABLED: Ticket commenting disabled for testing
-        log.info(f"Would add comment to ticket {ticket_id}: {comment} (DISABLED)")
-        return True
         try:
             # Resolve ticket ID if it's a display number
             internal_id = ticket_id

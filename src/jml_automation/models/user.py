@@ -105,10 +105,10 @@ class UserProfile:
             okta_data["profile"]["state"] = self.state
         if self.zipCode:
             okta_data["profile"]["zipCode"] = self.zipCode
-        if self.managerId:
-            okta_data["profile"]["managerId"] = self.managerId
         if self.managerEmail:
-            okta_data["profile"]["manager"] = self.managerEmail
+            okta_data["profile"]["managerId"] = self.managerEmail
+        if self.managerId:
+            okta_data["profile"]["manager"] = self.managerId
             
         # Remove None values
         okta_data["profile"] = {k: v for k, v in okta_data["profile"].items() if v is not None}

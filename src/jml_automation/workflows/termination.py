@@ -66,7 +66,7 @@ class TerminationWorkflow:
             
             # Initialize actual service implementations
             from jml_automation.services.microsoft import MicrosoftTermination
-            from jml_automation.services.google import GoogleTermination
+            from jml_automation.services.google import GoogleTerminationManager
             from jml_automation.services.zoom import ZoomService
             from jml_automation.services.adobe import AdobeService
             from jml_automation.services.domo import DomoService
@@ -74,7 +74,7 @@ class TerminationWorkflow:
             from jml_automation.services.workato import WorkatoService
             
             self.microsoft = MicrosoftTermination()
-            self.google = GoogleTermination()
+            self.google = GoogleTerminationManager()
             self.zoom = ZoomService()
             self.adobe = AdobeService()
             self.domo = DomoService()
@@ -698,22 +698,21 @@ class TerminationWorkflow:
             termination_results["overall_success"] = overall_success
 
             # Update ticket status ONLY if ALL phases completed successfully
-            # DISABLED: Ticket updating disabled for testing
             if ticket_id:
                 if overall_success:
                     try:
-                        logger.info(f" All phases successful - would update ticket {ticket_id} to 'In Progress' (DISABLED)")
+                        logger.info(f" All phases successful - updating ticket {ticket_id} to 'In Progress'")
                         phase_summary = ", ".join([
                             f"{phase.title()}: {'✓' if termination_results['phase_success'].get(phase) else '✗'}"
                             for phase in executed_phases
                         ])
-                        # self.solarwinds.update_ticket_status(
-                        #     ticket_id,
-                        #     "In Progress",
-                        #     notes=f"Multi-phase termination completed successfully - {phase_summary}"
-                        # )
-                        termination_results["summary"].append(f" Ticket {ticket_id} would be updated to 'In Progress' (DISABLED)")
-                        logger.info(f"Would update ticket {ticket_id} to 'In Progress' - all phases successful (DISABLED)")
+                        self.solarwinds.update_ticket_status(
+                            ticket_id,
+                            "In Progress",
+                            notes="Sessions cleared and deactivated in Okta. Appropriate deletion and data transfer completed from Microsoft, Google, Zoom, Domo, Lucid, Synq, Adobe, and Workato."
+                        )
+                        termination_results["summary"].append(f" Ticket {ticket_id} updated to 'In Progress'")
+                        logger.info(f"Updated ticket {ticket_id} to 'In Progress' - all phases successful")
                     except Exception as e:
                         logger.error(f"Failed to update ticket {ticket_id}: {e}")
                         termination_results["warnings"].append(f"Failed to update ticket {ticket_id}")
@@ -820,22 +819,21 @@ class TerminationWorkflow:
         okta_result = self.execute_okta_termination(user_email, ticket)
         
         # Update SolarWinds ticket
-        # DISABLED: Ticket updating disabled for testing
         try:
             if okta_result['success']:
-                # self.solarwinds.update_ticket_status(
-                #     ticket.ticket_id,
-                #     "In Progress",
-                #     notes=f"Okta termination completed: {', '.join(okta_result['actions_completed'])}"
-                # )
-                logger.info(f"Would update ticket {ticket.ticket_id} to 'In Progress' (DISABLED)")
+                self.solarwinds.update_ticket_status(
+                    ticket.ticket_id,
+                    "In Progress",
+                    notes=f"Okta termination completed: {', '.join(okta_result['actions_completed'])}"
+                )
+                logger.info(f"Updated ticket {ticket.ticket_id} to 'In Progress'")
             else:
-                # self.solarwinds.update_ticket_status(
-                #     ticket.ticket_id,
-                #     "Pending",
-                #     notes=f"Okta termination had issues: {', '.join(okta_result['actions_failed'])}"
-                # )
-                logger.info(f"Would update ticket {ticket.ticket_id} to 'Pending' (DISABLED)")
+                self.solarwinds.update_ticket_status(
+                    ticket.ticket_id,
+                    "Pending",
+                    notes=f"Okta termination had issues: {', '.join(okta_result['actions_failed'])}"
+                )
+                logger.info(f"Updated ticket {ticket.ticket_id} to 'Pending'")
         except Exception as e:
             logger.error(f"Failed to update SolarWinds ticket: {e}")
         
