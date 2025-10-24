@@ -9,6 +9,7 @@ termination:
     - lucid         # Delete, transfer docs
     - adobe         # Remove products
     - workato       # Remove collaborator
+    - iru           # Device management - unassign, lock, inventory-only
   
   okta_groups_to_remove:
     microsoft:

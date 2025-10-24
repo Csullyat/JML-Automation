@@ -351,7 +351,7 @@ def parse_onboarding(raw: RawTicket) -> OnboardingTicket:
     if reports_to_field and isinstance(reports_to_field, dict):
         user_obj = reports_to_field.get("user")
         if user_obj:
-            user.manager_email = user_obj.get("email")
+            user.manager_email = _norm_email(user_obj.get("email"))
             manager_name = user_obj.get("name")
             if manager_name:
                 parts = manager_name.split()

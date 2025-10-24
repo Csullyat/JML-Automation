@@ -72,6 +72,7 @@ class TerminationWorkflow:
             from jml_automation.services.domo import DomoService
             from jml_automation.services.lucid import LucidchartService
             from jml_automation.services.workato import WorkatoService
+            from jml_automation.services.iru import IruService
             
             self.microsoft = MicrosoftTermination()
             self.google = GoogleTerminationManager()
@@ -80,6 +81,7 @@ class TerminationWorkflow:
             self.domo = DomoService()
             self.lucidchart = LucidchartService()
             self.workato = WorkatoService()
+            self.iru = IruService()
             self.synq = self.synqprox  # Alias for consistency
             
             logger.info("Core services initialized successfully")
@@ -308,7 +310,7 @@ class TerminationWorkflow:
             phases: List of phases to execute ['okta','microsoft','google','zoom','synqprox','domo','lucid','workato']
         """
         if phases is None:
-            phases = ["okta", "microsoft", "google", "zoom", "synqprox", "domo", "adobe", "lucid", "workato"]
+            phases = ["okta", "microsoft", "google", "zoom", "synqprox", "domo", "adobe", "lucid", "workato", "iru"]
 
         logger.info(f"Starting multi-phase termination for {user_email}")
         logger.info(f"Phases to execute: {', '.join(phases)}")
@@ -687,6 +689,41 @@ class TerminationWorkflow:
                     logger.error(f"Workato termination failed: {e}")
                     termination_results["phase_success"]["workato"] = False
                     termination_results["errors"].append(f"Workato termination failed: {str(e)}")
+
+            # Phase 10: Iru (Device Management - always process)
+            if "iru" in phases:
+                if progress_callback:
+                    progress_callback("Phase 10: Iru", "starting")
+                logger.info(" PHASE 10: Iru device management termination (always process)")
+                try:
+                    iru_results = self.iru.execute_complete_termination(user_email)
+                    termination_results["iru_results"] = iru_results
+                    
+                    if iru_results.get("success"):
+                        devices_processed = iru_results.get("devices_processed", 0)
+                        if devices_processed > 0:
+                            if progress_callback:
+                                progress_callback("Phase 10: Iru", "success", f"Processed {devices_processed} devices - unassigned, locked, and moved to Inventory Only")
+                            termination_results["summary"].append(f"SUCCESS: Iru: {devices_processed} devices processed (unassigned, locked, inventory-only)")
+                        else:
+                            if progress_callback:
+                                progress_callback("Phase 10: Iru", "success", "No devices found for user")
+                            termination_results["summary"].append("SUCCESS: Iru: No devices found for user")
+                        termination_results["phase_success"]["iru"] = True
+                    else:
+                        error_details = "; ".join(iru_results.get("errors", ["Unknown error"]))
+                        if progress_callback:
+                            progress_callback("Phase 10: Iru", "error", f"Device management failed: {error_details}")
+                        termination_results["summary"].append(f"ERROR: Iru: {error_details}")
+                        termination_results["phase_success"]["iru"] = False
+                        termination_results["errors"].append(f"Iru device management failed: {error_details}")
+                        
+                except Exception as e:
+                    logger.error(f"Iru device management failed: {e}")
+                    if progress_callback:
+                        progress_callback("Phase 10: Iru", "error", f"Critical error: {str(e)}")
+                    termination_results["phase_success"]["iru"] = False
+                    termination_results["errors"].append(f"Iru device management failed: {str(e)}")
 
             # Determine overall success - all executed phases must succeed
             executed_phases = [phase for phase in phases if phase in termination_results["phase_success"]]
