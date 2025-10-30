@@ -203,7 +203,7 @@ trufflehog git https://github.com/trufflesecurity/test_keys --only-verified --js
 Expected output:
 
 ```
-{"SourceMetadata":{"Data":{"Git":{"commit":"fbc14303ffbf8fb1c2c1914e8dda7d0121633aca","file":"keys","email":"counter \u003ccounter@counters-MacBook-Air.local\u003e","repository":"https://github.com/trufflesecurity/test_keys","timestamp":"2022-06-16 10:17:40 -0700 PDT","line":4}}},"SourceID":0,"SourceType":16,"SourceName":"trufflehog - git","DetectorType":2,"DetectorName":"AWS","DecoderName":"PLAIN","Verified":true,"Raw":"[REDACTED_AWS_KEY]","Redacted":"[REDACTED_AWS_KEY]","ExtraData":{"account":"595918472158","arn":"arn:aws:iam::595918472158:user/canarytokens.com@@mirux23ppyky6hx3l6vclmhnj","user_id":"AIDAYVP4CIPPJ5M54LRCY"},"StructuredData":null}
+{"SourceMetadata":{"Data":{"Git":{"commit":"fbc14303ffbf8fb1c2c1914e8dda7d0121633aca","file":"keys","email":"counter \u003ccounter@counters-MacBook-Air.local\u003e","repository":"https://github.com/trufflesecurity/test_keys","timestamp":"2022-06-16 10:17:40 -0700 PDT","line":4}}},"SourceID":0,"SourceType":16,"SourceName":"trufflehog - git","DetectorType":2,"DetectorName":"AWS","DecoderName":"PLAIN","Verified":true,"Raw":"[REDACTED_AWS_KEY]","Redacted":"[REDACTED_AWS_KEY]","ExtraData":{"account":"[REDACTED]","arn":"[REDACTED]","user_id":"[REDACTED]"},"StructuredData":null}
 ...
 ```
 
@@ -662,7 +662,7 @@ Data structure sent to the custom verification server:
 ```
 {
     "HogTokenDetector": {
-        "HogID": ["HOGAAIUNNWHAHJJWUQYR"],
+        "HogID": ["[REDACTED_HOG_ID]"],
         "HogSecret": ["[REDACTED_HOG_SECRET]"],
     }
 }
