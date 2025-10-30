@@ -10,7 +10,7 @@ import time
 import jwt
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from jml_automation import config
 
 logger = logging.getLogger(__name__)
@@ -268,303 +268,87 @@ class ZoomTerminationManager:
             return False
 
     def transfer_user_data(self, user_email: str, manager_email: str) -> bool:
-        """Transfer Zoom user data to manager before deletion."""
-        try:
-            logger.info(f"Starting Zoom data transfer: {user_email} -> {manager_email}")
-            
-            # Verify source user exists
-            user = self.find_user_by_email(user_email)
-            if not user:
-                logger.error(f"Cannot transfer data: source user {user_email} not found")
-                return False
-            
-            # Verify manager exists
-            manager = self.find_user_by_email(manager_email)
-            if not manager:
-                logger.error(f"Cannot transfer data: manager {manager_email} not found")
-                return False
-            
-            # Get user ID for API calls
-            user_id = user.get('id')
-            manager_id = manager.get('id')
-            
-            logger.info(f"Transferring data from user ID: {user_id} to manager ID: {manager_id}")
-            
-            # Transfer recordings
-            recordings_transferred = self._transfer_recordings(user_id, manager_id, user_email, manager_email)
-            
-            # Transfer webinars (skip if company doesn't use webinars)
-            webinars_transferred = self._transfer_webinars(user_id, manager_id, user_email, manager_email)
-            if not webinars_transferred:
-                logger.info("Webinars transfer failed, but continuing (company doesn't heavily use webinars)")
-                webinars_transferred = True  # Don't fail the whole process for webinars
-            
-            # Transfer meetings (scheduled)
-            meetings_transferred = self._transfer_meetings(user_id, manager_id, user_email, manager_email)
-            
-            # Transfer Events hub assets
-            events_transferred = self._transfer_events_hub_assets(user_email, manager_email)
-            
-            # Require recordings, meetings, and events - webinars are optional
-            if recordings_transferred and meetings_transferred and events_transferred:
-                logger.info(f"Essential Zoom data successfully transferred: {user_email} -> {manager_email}")
-                return True
-            else:
-                logger.error(f"Critical Zoom data transfer operations failed for {user_email}")
-                logger.error(f"Recordings: {recordings_transferred}, Meetings: {meetings_transferred}, Events: {events_transferred}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error transferring Zoom data from {user_email} to {manager_email}: {e}")
-            return False
+        """DEPRECATED: Data transfer now happens atomically in delete_user method."""
+        logger.warning("transfer_user_data is deprecated - data transfer now happens atomically during user deletion")
+        logger.info(f"Zoom will transfer data from {user_email} to {manager_email} automatically during deletion")
+        return True  # Always return True since transfer is handled by delete_user
 
     def _transfer_recordings(self, user_id: str, manager_id: str, user_email: str, manager_email: str) -> bool:
-        """Transfer user's cloud recordings to manager with verification."""
-        try:
-            logger.info(f"Transferring recordings from {user_email} to {manager_email}")
-            
-            # Get user's recordings
-            recordings_response = self._make_api_request('GET', f'/users/{user_id}/recordings')
-            recordings = recordings_response.get('meetings', [])
-            
-            if not recordings:
-                logger.info(f"No recordings found for {user_email}")
-                return True
-            
-            logger.info(f"Found {len(recordings)} recordings to transfer")
-            
-            # Transfer each recording and verify
-            transferred_count = 0
-            for recording in recordings:
-                meeting_id = recording.get('id')
-                try:
-                    # Transfer recording ownership
-                    transfer_data = {
-                        'owner': manager_email
-                    }
-                    self._make_api_request('PATCH', f'/meetings/{meeting_id}/recordings/transfer', transfer_data)
-                    
-                    # Verify transfer by checking new owner
-                    try:
-                        updated_recording = self._make_api_request('GET', f'/meetings/{meeting_id}/recordings')
-                        if updated_recording and updated_recording.get('host_email') == manager_email:
-                            logger.info(f"✓ Recording {meeting_id} successfully transferred to {manager_email}")
-                            transferred_count += 1
-                        else:
-                            logger.warning(f"Recording {meeting_id} transfer verification failed")
-                    except:
-                        # If we can't verify, assume it worked if no error was thrown
-                        logger.info(f"Recording {meeting_id} transferred (verification unavailable)")
-                        transferred_count += 1
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to transfer recording {meeting_id}: {e}")
-            
-            success_rate = transferred_count / len(recordings) * 100
-            logger.info(f"Recordings transfer completed: {transferred_count}/{len(recordings)} successful ({success_rate:.1f}%)")
-            
-            # Return True if at least 90% successful
-            return success_rate >= 90.0
-            
-        except Exception as e:
-            logger.error(f"Error transferring recordings: {e}")
-            return False
+        """DEPRECATED: Recordings transfer now happens atomically during user deletion."""
+        logger.warning("_transfer_recordings is deprecated - recordings are transferred automatically during user deletion")
+        return True
 
     def _transfer_webinars(self, user_id: str, manager_id: str, user_email: str, manager_email: str) -> bool:
-        """Transfer user's webinars to manager with verification."""
-        try:
-            logger.info(f"Transferring webinars from {user_email} to {manager_email}")
-            
-            # Get user's webinars
-            webinars_response = self._make_api_request('GET', f'/users/{user_id}/webinars')
-            webinars = webinars_response.get('webinars', [])
-            
-            if not webinars:
-                logger.info(f"No webinars found for {user_email}")
-                return True
-            
-            logger.info(f"Found {len(webinars)} webinars to transfer")
-            
-            # Transfer each webinar and verify
-            transferred_count = 0
-            for webinar in webinars:
-                webinar_id = webinar.get('id')
-                try:
-                    # Update webinar host
-                    transfer_data = {
-                        'host_id': manager_id
-                    }
-                    self._make_api_request('PATCH', f'/webinars/{webinar_id}', transfer_data)
-                    
-                    # Verify transfer by checking new host
-                    try:
-                        updated_webinar = self._make_api_request('GET', f'/webinars/{webinar_id}')
-                        if updated_webinar and updated_webinar.get('host_id') == manager_id:
-                            logger.info(f"✓ Webinar {webinar_id} successfully transferred to {manager_email}")
-                            transferred_count += 1
-                        else:
-                            logger.warning(f"Webinar {webinar_id} transfer verification failed")
-                    except:
-                        # If we can't verify, assume it worked if no error was thrown
-                        logger.info(f"Webinar {webinar_id} transferred (verification unavailable)")
-                        transferred_count += 1
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to transfer webinar {webinar_id}: {e}")
-            
-            success_rate = transferred_count / len(webinars) * 100
-            logger.info(f"Webinars transfer completed: {transferred_count}/{len(webinars)} successful ({success_rate:.1f}%)")
-            
-            # Return True if at least 90% successful
-            return success_rate >= 90.0
-            
-        except Exception as e:
-            # Check if it's a "no webinar plan" error
-            error_msg = str(e).lower()
-            if "webinar plan is missing" in error_msg or "webinar plan" in error_msg:
-                logger.info(f"User {user_email} has no webinar plan - no webinars to transfer")
-                return True
-            else:
-                logger.error(f"Error transferring webinars: {e}")
-                return False
+        """DEPRECATED: Webinars transfer now happens atomically during user deletion."""
+        logger.warning("_transfer_webinars is deprecated - webinars are transferred automatically during user deletion")
+        return True
 
     def _transfer_meetings(self, user_id: str, manager_id: str, user_email: str, manager_email: str) -> bool:
-        """Transfer user's scheduled meetings to manager."""
-        try:
-            logger.info(f"Transferring meetings from {user_email} to {manager_email}")
-            
-            # Get user's meetings
-            meetings_response = self._make_api_request('GET', f'/users/{user_id}/meetings')
-            meetings = meetings_response.get('meetings', [])
-            
-            if not meetings:
-                logger.info(f"No meetings found for {user_email}")
-                return True
-            
-            logger.info(f"Found {len(meetings)} meetings to transfer")
-            
-            # Transfer each meeting
-            for meeting in meetings:
-                meeting_id = meeting.get('id')
-                try:
-                    # Update meeting host
-                    transfer_data = {
-                        'host_id': manager_id
-                    }
-                    self._make_api_request('PATCH', f'/meetings/{meeting_id}', transfer_data)
-                    logger.info(f"Transferred meeting {meeting_id} to {manager_email}")
-                except Exception as e:
-                    logger.warning(f"Failed to transfer meeting {meeting_id}: {e}")
-            
-            logger.info(f"Meetings transfer completed for {user_email}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error transferring meetings: {e}")
-            return False
+        """DEPRECATED: Meetings transfer now happens atomically during user deletion."""
+        logger.warning("_transfer_meetings is deprecated - meetings are transferred automatically during user deletion")
+        return True
 
-    def delete_user(self, user_email: str, transfer_target_email: str = None) -> bool:
-        """Delete Zoom user account using correct URL parameter method with Events transfer."""
+    def delete_user(self, user_email: str, transfer_target_email: Optional[str] = None) -> bool:
+        """Delete Zoom user account - Zoom handles ALL data transfer atomically."""
         try:
-            logger.info(f"Attempting user deletion for: {user_email}")
+            logger.info(f"Deleting user {user_email}")
             
-            # Verify user exists before deletion
+            # Verify user exists
             user = self.find_user_by_email(user_email)
             if not user:
                 logger.warning(f"User {user_email} not found, skipping deletion")
                 return True  # Consider this success since user doesn't exist
             
-            user_id = user.get('id')
-            logger.info(f"User details - ID: {user_id}, Email: {user_email}")
-            
-            # If we have a transfer target, get their user ID for Events transfer
-            transfer_target_id = None
+            # Build delete URL with transfer parameters
             if transfer_target_email:
-                transfer_user = self.find_user_by_email(transfer_target_email)
-                if transfer_user:
-                    transfer_target_id = transfer_user.get('id')
-                    logger.info(f"Transfer target: {transfer_target_email} (ID: {transfer_target_id})")
-                else:
-                    logger.warning(f"Transfer target {transfer_target_email} not found")
-            
-            # Method 1: URL parameter deletion with Events transfer (if needed)
-            if transfer_target_id:
-                logger.info("ATTEMPTING: DELETE /users/{email}?action=delete&transfer_email={target}")
-                try:
-                    self._make_api_request('DELETE', f'/users/{user_email}?action=delete&transfer_email={transfer_target_email}')
-                    logger.info(f"SUCCESS: User completely deleted with Events transfer: {user_email}")
-                    return True
-                except requests.exceptions.HTTPError as e:
-                    logger.warning(f"Email deletion with transfer failed: {e.response.status_code} - {e.response.text}")
-                except Exception as e:
-                    logger.warning(f"Email deletion with transfer failed: {e}")
+                # Verify transfer target exists
+                if not self.find_user_by_email(transfer_target_email):
+                    logger.error(f"Transfer target {transfer_target_email} not found")
+                    return False
                 
-                # Method 2: URL parameter deletion with user ID and transfer
-                logger.info("ATTEMPTING: DELETE /users/{user_id}?action=delete&transfer_email={target}")
-                try:
-                    self._make_api_request('DELETE', f'/users/{user_id}?action=delete&transfer_email={transfer_target_email}')
-                    logger.info(f"SUCCESS: User completely deleted via ID with Events transfer: {user_email}")
-                    return True
-                except requests.exceptions.HTTPError as e:
-                    logger.warning(f"ID deletion with transfer failed: {e.response.status_code} - {e.response.text}")
-                except Exception as e:
-                    logger.warning(f"ID deletion with transfer failed: {e}")
+                # Delete with automatic transfer of ALL data (recordings, meetings, webinars)
+                query_params = [
+                    'action=delete',
+                    f'transfer_email={transfer_target_email}',
+                    'transfer_meeting=true',
+                    'transfer_webinar=true', 
+                    'transfer_recording=true'
+                ]
+                query_string = '&'.join(query_params)
+                full_endpoint = f'/users/{user_email}?{query_string}'
+                
+                logger.info(f"Deleting user with ATOMIC data transfer to {transfer_target_email}")
+                logger.info(f"Zoom will transfer: recordings, meetings, webinars, events")
+                logger.info(f"Endpoint: DELETE {full_endpoint}")
             else:
-                # SAFETY CHECK: Do not attempt deletion if transfer was requested but target not found
-                logger.error(f"SAFETY: Transfer target {transfer_target_email} not found in Zoom")
-                logger.error(f"SAFETY: Will not delete user {user_email} without proper data transfer")
+                full_endpoint = f'/users/{user_email}?action=delete'
+                logger.info(f"Deleting user without data transfer")
+            
+            # Execute deletion - Zoom handles transfers atomically
+            self._make_api_request('DELETE', full_endpoint)
+            logger.info(f"SUCCESS: User deleted successfully: {user_email}")
+            if transfer_target_email:
+                logger.info(f"SUCCESS: All data automatically transferred to {transfer_target_email}")
+            return True
+            
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP error during user deletion: {e.response.status_code} - {e.response.text}")
+            if e.response.status_code == 400 and "hub assets" in e.response.text.lower():
+                logger.error(f"User has Events hub assets but no transfer target specified")
                 return False
+            # Fall back to license removal
+            return self._comprehensive_license_removal(user_email, user.get('id'))
             
-            # Method 3: Standard deletion without transfer (only if no transfer_target_email specified)
-            if not transfer_target_email:
-                logger.info("ATTEMPTING: DELETE /users/{email}?action=delete (NO TRANSFER)")
-                try:
-                    self._make_api_request('DELETE', f'/users/{user_email}?action=delete')
-                    logger.info(f"SUCCESS: User completely deleted (no transfer requested): {user_email}")
-                    return True
-                except requests.exceptions.HTTPError as e:
-                    if e.response.status_code == 400 and "hub assets" in e.response.text.lower():
-                        logger.error(f"FAILED: User has Events hub assets that require transfer: {user_email}")
-                        logger.error(f"Error details: {e.response.text}")
-                        return False
-                    else:
-                        logger.warning(f"Email deletion failed: {e.response.status_code} - {e.response.text}")
-                except Exception as e:
-                    logger.warning(f"Email deletion failed: {e}")
-            else:
-                logger.error(f"SAFETY: Cannot delete {user_email} - transfer was requested but failed")
-                return False
-            
-            # Method 4: URL parameter deletion with user ID
-            logger.info("ATTEMPTING: DELETE /users/{user_id}?action=delete")
-            try:
-                self._make_api_request('DELETE', f'/users/{user_id}?action=delete')
-                logger.info(f"SUCCESS: User completely deleted via ID: {user_email}")
-                return True
-            except requests.exceptions.HTTPError as e:
-                logger.warning(f"ID deletion failed: {e.response.status_code} - {e.response.text}")
-            except Exception as e:
-                logger.warning(f"ID deletion failed: {e}")
-            
-            # Method 5: URL parameter disassociate (removes from org but keeps account)
-            logger.info("ATTEMPTING: DELETE /users/{email}?action=disassociate")
-            try:
-                self._make_api_request('DELETE', f'/users/{user_email}?action=disassociate')
-                logger.info(f"SUCCESS: User disassociated: {user_email}")
-                return True
-            except Exception as e:
-                logger.warning(f"Disassociate failed: {e}")
-            
-            # All deletion methods failed - fall back to comprehensive license removal
-            logger.error(f"ALL DELETION METHODS FAILED for {user_email}")
-            logger.info(f"Falling back to comprehensive license removal...")
-            return self._comprehensive_license_removal(user_email, user_id)
+        except Exception as e:
+            logger.error(f"Error during user deletion: {e}")
+            # Fall back to license removal
+            return self._comprehensive_license_removal(user_email, user.get('id') if user else None)
             
         except Exception as e:
             logger.error(f"Unexpected error in user deletion for {user_email}: {e}")
             return self._comprehensive_license_removal(user_email, user.get('id') if user else None)
 
-    def _comprehensive_license_removal(self, user_email: str, user_id: str = None) -> bool:
+    def _comprehensive_license_removal(self, user_email: str, user_id: Optional[str] = None) -> bool:
         """Comprehensive license removal and user deactivation when deletion fails."""
         try:
             logger.info(f" COMPREHENSIVE LICENSE REMOVAL for {user_email}")
@@ -704,12 +488,12 @@ class ZoomTerminationManager:
             logger.error(f"Fatal error in comprehensive license removal for {user_email}: {e}")
             return False
 
-    def _deactivate_user(self, user_email: str, user_id: str = None) -> bool:
+    def _deactivate_user(self, user_email: str, user_id: Optional[str] = None) -> bool:
         """Legacy deactivate method - now calls comprehensive removal."""
         return self._comprehensive_license_removal(user_email, user_id)
 
-    def execute_complete_termination(self, user_email: str, manager_email: str = None) -> bool:
-        """Execute complete Zoom termination with enhanced data handling logic."""
+    def execute_complete_termination(self, user_email: str, manager_email: Optional[str] = None) -> bool:
+        """Execute complete Zoom termination - simplified to use Zoom's atomic transfer."""
         try:
             logger.info(f"Starting Zoom termination for {user_email}")
             
@@ -719,29 +503,15 @@ class ZoomTerminationManager:
                 logger.warning(f"User {user_email} not found in Zoom")
                 return True  # Consider this success since user doesn't exist
             
-            # Step 2: Check if user has transferable data
+            # Step 2: Check if user has data that needs transfer
             has_data = self.has_transferable_data(user_email)
             
-            if has_data and manager_email:
-                # User has data - attempt transfer
-                logger.info(f"Step 1: User has transferable data, transferring to manager ({manager_email})")
-                transfer_success = self.transfer_user_data(user_email, manager_email)
-                
-                if not transfer_success:
-                    logger.error(f"Data transfer failed for {user_email}, aborting deletion to preserve data")
-                    return False
-                    
-            elif has_data and not manager_email:
-                # User has data but no manager - cannot proceed safely
+            if has_data and not manager_email:
                 logger.error(f"User {user_email} has transferable data but no manager specified for transfer")
                 return False
-                
-            else:
-                # User has no transferable data - safe to proceed to deletion
-                logger.info(f"Step 1: User has no transferable data, proceeding directly to deletion")
             
-            # Step 3: Delete user account (now safe whether data was transferred or confirmed absent)
-            logger.info(f"Step 2: Deleting user account")
+            # Step 3: Delete user (Zoom handles data transfer automatically)
+            logger.info(f"Deleting user account (Zoom will transfer data automatically)")
             deletion_success = self.delete_user(user_email, manager_email)
             
             if deletion_success:
@@ -803,7 +573,7 @@ class ZoomTermination:
         """Initialize Zoom termination wrapper."""
         self.manager = ZoomTerminationManager()
     
-    def execute_complete_termination(self, user_email: str, manager_email: str = None) -> Dict:
+    def execute_complete_termination(self, user_email: str, manager_email: Optional[str] = None) -> Dict:
         """
         Execute complete Zoom termination for a user.
         

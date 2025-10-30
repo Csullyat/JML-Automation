@@ -103,7 +103,10 @@ class Config:
             ], capture_output=True, text=True, timeout=10)
             
             if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
+                token = result.stdout.strip()
+                # Debug output: log token length and first/last 5 chars (not full token)
+                logger.debug(f"Retrieved service account token from Credential Manager: length={len(token)}, first5='{token[:5]}', last5='{token[-5:]}'")
+                return token
             else:
                 logger.error(f"Failed to retrieve service account token: {result.stderr}")
                 return None
@@ -118,7 +121,12 @@ class Config:
     def _get_from_onepassword_service_account(self, resource_path: str) -> Optional[str]:
         """Retrieve a secret using 1Password Service Account (via stored token)."""
         try:
-            service_token = self.get_service_account_token_from_credential_manager()
+            # First check environment variable
+            service_token = os.environ.get('OP_SERVICE_ACCOUNT_TOKEN')
+            if not service_token:
+                # Fall back to credential manager
+                service_token = self.get_service_account_token_from_credential_manager()
+            
             if not service_token:
                 logger.debug("No service account token available, falling back to regular CLI")
                 return None

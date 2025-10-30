@@ -34,7 +34,7 @@ All information is pulled from the onboarding ticket in SolarWinds.
   - Add:
     - `Filevine Employees`
     - `SSO-Zoom_Member_Basic`  
-      - Use `SSO-Zoom_Member_Pro` if they are an AE.
+      - Use `SSO-Zoom_Member_Premier` if they are an AE.
     - Department group (based on *New Employee Department*).
     - Any other groups required by the role.
 

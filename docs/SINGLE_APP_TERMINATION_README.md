@@ -36,7 +36,7 @@ termination:
       - "SSO-G Suite_EnterpriseUsers"
     zoom:
       - "SSO-Zoom_Member_Basic"
-      - "SSO_Zoom_Member_Pro"
+      - "SSO_Zoom_Member_Premier"
       - "SSO-Zoom_Member_Pro_Phone"
     # ... etc
 ```
@@ -103,4 +103,4 @@ This will:
 - Extract user email and transfer email
 - Show what data transfer would happen (dry run)
 - Show what user deletion would happen (dry run) 
-- Remove user from Zoom-specific Okta groups: "SSO-Zoom_Member_Basic", "SSO_Zoom_Member_Pro", "SSO-Zoom_Member_Pro_Phone"
+- Remove user from Zoom-specific Okta groups: "SSO-Zoom_Member_Basic", "SSO_Zoom_Member_Premier", "SSO-Zoom_Member_Pro_Phone"

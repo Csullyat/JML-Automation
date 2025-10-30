@@ -42,12 +42,41 @@ class WindowsCredentialManager:
     
     def get_service_account_token(self) -> Optional[str]:
         """
-        Get the service account token from Windows Credential Manager.
+        Get the service account token from Windows Credential Manager using PowerShell script.
         
         Returns:
             The service account token if found, None otherwise
         """
-        return self.get_credential(self.service_account_name, 'token')
+        try:
+            import os
+            
+            # Use the same PowerShell script that works for all other services
+            script_path = os.path.join(
+                os.path.dirname(__file__), '..', '..', '..', 'scripts', 'get_credential.ps1'
+            )
+            
+            if not os.path.exists(script_path):
+                logger.error(f"get_credential.ps1 not found at {script_path}")
+                return None
+            
+            result = subprocess.run([
+                'powershell', '-ExecutionPolicy', 'Bypass', '-File', script_path
+            ], capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                token = result.stdout.strip()
+                logger.info("Successfully retrieved service account token via PowerShell script")
+                return token
+            else:
+                logger.error(f"Failed to retrieve service account token: {result.stderr}")
+                return None
+                
+        except subprocess.TimeoutExpired:
+            logger.error("PowerShell script timed out")
+            return None
+        except Exception as e:
+            logger.error(f"Error retrieving service account token: {e}")
+            return None
     
     def get_synqprox_credentials(self) -> Optional[Dict[str, str]]:
         """

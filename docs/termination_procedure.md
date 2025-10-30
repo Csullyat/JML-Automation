@@ -57,7 +57,7 @@ This document outlines the full process for terminating a Filevine user, removin
 - Click **Transfer Data Then Delete**.
 - Remove from Zoom groups:
   - `SSO-Zoom_Member_Basic`
-  - `SSO-Zoom_Member_Pro`
+  - `SSO-Zoom_Member_Premier`
   - `SSO-Zoom_Member_Pro_Phone`
 
 ---

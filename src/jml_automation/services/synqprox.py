@@ -175,8 +175,9 @@ class SynqProxService(BaseService):
             # Wait and check if login worked
             time.sleep(3)
             
-            if not login_success:
-                logger.error("Failed to complete login process properly")
+            # Check if email entry was successful (login_success should contain email entry result)
+            if not login_success or login_success == 'email_field_not_found':
+                logger.error("Failed to complete login process properly - email field not found or not filled")
                 return False
             
             # Wait for login to complete and redirect to main app

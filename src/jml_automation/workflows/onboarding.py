@@ -171,7 +171,7 @@ def run(
             "displayName": f"{u.first_name} {u.last_name}",
             "title":       u.title,
             "department":  u.department,
-            "manager":     u.manager_email,
+            "manager":     u.manager_display,  # The "Lastname, Firstname" format
             # Additional mappings
             "secondEmail": u.personal_email,  # From "New Employee Personal Email Address"
             "mobilePhone": u.phone_mobile,
@@ -181,7 +181,7 @@ def run(
             "zipCode": u.zip_code,
             "countryCode": u.country_code,  # From "countryCode - Formatted (US)"
             "organization": "Filevine",  # Always Filevine
-            "managerId": u.manager_display,  # The "Lastname, Firstname" format
+            "managerId": u.manager_email,  # The manager's email address
             "swrole": "Requester",  # Always Requester
             "preferredLanguage": "en",  # Always hardcoded to English
             "timezone": timezone,
@@ -210,6 +210,8 @@ def run(
     # Map department names to config keys
     department_key = u.department
     if u.department == "AE - Account Executives":
+        department_key = "Sales"
+    elif u.department == "SDR - Sales Development Reps":
         department_key = "Sales"
     
     if department_key in dept_map:
@@ -242,6 +244,32 @@ def run(
     else:
         print(f"DEBUG: No valid groups to add for user {u.email} (id={user_id})")
         log.warning(f"No valid groups to add for user {u.email} (id={user_id})")
+
+    # 3) Microsoft 365 group assignment
+    try:
+        from jml_automation.services.microsoft import MicrosoftService
+        print(f"DEBUG: Adding Microsoft 365 groups for user {u.email} in department {u.department}")
+        
+        ms = MicrosoftService()
+        m365_results = ms.add_user_to_groups_by_department(u.email, u.department or "")
+        
+        if m365_results['success']:
+            groups_added = m365_results['groups_added']
+            print(f"DEBUG: Successfully added {u.email} to Microsoft 365 groups: {groups_added}")
+            log.info(f"Added user {u.email} to Microsoft 365 groups: {groups_added}")
+        else:
+            groups_failed = m365_results['groups_failed']
+            errors = m365_results['errors']
+            print(f"DEBUG: Microsoft 365 group assignment failed for {u.email}: {errors}")
+            log.warning(f"Microsoft 365 group assignment failed for {u.email}: {groups_failed}")
+            # Don't fail the entire onboarding process for M365 group issues
+            for error in errors:
+                log.warning(f"M365 group error: {error}")
+                
+    except Exception as e:
+        print(f"DEBUG: Microsoft 365 group assignment failed for {u.email}: {e}")
+        log.warning(f"Microsoft 365 group assignment failed (non-fatal): {e}")
+        # Continue with onboarding even if M365 groups fail
 
     # Update SolarWinds ticket state and add comment (direct API style)
     try:

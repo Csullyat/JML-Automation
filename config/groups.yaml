@@ -8,5 +8,5 @@ dept:
   "Research & Development":
     - "Development"  # Okta group ID: 00g9dig6h44pNmIuE297
 zoom:
-  ae: "SSO-Zoom_Member_Pro"
+  ae: "SSO-Zoom_Member_Premier"
   default: "SSO-Zoom_Member_Basic"

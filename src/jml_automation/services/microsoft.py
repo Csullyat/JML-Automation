@@ -1,16 +1,16 @@
-# microsoft_termination.py - Microsoft 365 and Exchange termination automation
+# microsoft.py - Microsoft 365 and Exchange service automation
 
 import logging
 import requests
 import json
 import time
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-class MicrosoftTermination:
-    """Microsoft 365 and Exchange termination automation."""
+class MicrosoftService:
+    """Microsoft 365 and Exchange service automation for onboarding and termination."""
     
     def __init__(self):
         """Initialize Microsoft Graph client."""
@@ -567,24 +567,6 @@ try {{
             logger.error(f"ERROR deleting Microsoft 365 user {user_email}: {e}")
             return False
 
-# Test function
-def test_microsoft_termination():
-    """Test Microsoft 365 termination functionality."""
-    try:
-        ms_term = MicrosoftTermination()
-        
-        # Test user lookup
-        test_email = "test@filevine.com"  # Replace with actual test email
-        user = ms_term.find_user_by_email(test_email)
-        
-        if user:
-            print(f"Found user: {user.get('displayName')} ({test_email})")
-        else:
-            print(f"User not found: {test_email}")
-            
-    except Exception as e:
-        print(f"Test failed: {e}")
-
     def test_connectivity(self) -> Dict:
         """Test Microsoft Graph API connectivity."""
         try:
@@ -624,8 +606,178 @@ def test_microsoft_termination():
             }
 
 
-# Alias for compatibility with import expectations
-MicrosoftService = MicrosoftTermination
+
+    def add_user_to_group(self, user_email: str, group_name: str) -> bool:
+        """Add user to Microsoft 365 group by email and group name using PowerShell."""
+        logger.info(f"Adding user {user_email} to Microsoft 365 group: {group_name}")
+        
+        # Use PowerShell directly since it works with our certificate authentication
+        return self._add_user_to_group_powershell(user_email, group_name)
+
+    def _add_user_to_group_powershell(self, user_email: str, group_name: str) -> bool:
+        """Add user to mail-enabled security group using PowerShell with certificate authentication."""
+        try:
+            import subprocess
+            logger.info(f"Adding user {user_email} to group {group_name} via PowerShell with certificate auth")
+            
+            # Get Exchange credentials including certificate thumbprint
+            exchange_creds = self.config.get_exchange_credentials()
+            tenant_id = exchange_creds.get('tenant_id', '')
+            client_id = exchange_creds.get('app_id', '')  # Exchange uses 'app_id' key
+            cert_thumbprint = exchange_creds.get('cert_thumbprint', '')
+            
+            if not all([tenant_id, client_id, cert_thumbprint]):
+                logger.error(f"Missing required credentials for certificate authentication:")
+                logger.error(f"  tenant_id: {'✓' if tenant_id else '✗'}")
+                logger.error(f"  client_id: {'✓' if client_id else '✗'}")
+                logger.error(f"  cert_thumbprint: {'✓' if cert_thumbprint else '✗'}")
+                return False
+            
+            # Use PowerShell script file to avoid module loading issues
+            script_path = r"C:\Users\Cody\Desktop\JML_Automation\scripts\add_user_to_distribution_group.ps1"
+            
+            # Execute PowerShell script using PowerShell 7 (which has all the required modules)
+            # PowerShell 7 is installed in Program Files and handles Exchange modules better
+            powershell_path = r"C:\Program Files\PowerShell\7\pwsh.exe"
+            
+            # Fall back to Windows PowerShell if PowerShell 7 is not available
+            import os
+            if not os.path.exists(powershell_path):
+                powershell_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+                logger.warning("PowerShell 7 not found, falling back to Windows PowerShell 5.1")
+            
+            result = subprocess.run([
+                powershell_path,
+                "-ExecutionPolicy", "Bypass",
+                "-File", script_path,
+                "-UserEmail", user_email,
+                "-GroupName", group_name,
+                "-CertThumbprint", cert_thumbprint,
+                "-AppId", client_id
+            ], capture_output=True, text=True, timeout=180)
+            
+            # Check for success
+            success_indicators = ["SUCCESS:", "already a member", "already exists"]
+            if result.returncode == 0 or any(indicator in result.stdout for indicator in success_indicators):
+                logger.info(f"Successfully added user {user_email} to group {group_name} via PowerShell")
+                return True
+            
+            # Check for certificate authentication errors
+            if "Key not valid for use in specified state" in result.stdout or "Key not valid for use in specified state" in result.stderr:
+                logger.error(f"CERTIFICATE ERROR: Certificate authentication failed for group '{group_name}'")
+                logger.warning(f"MANUAL ACTION REQUIRED: Please add {user_email} to group '{group_name}' manually in Exchange Admin Center")
+                logger.warning(f"REASON: Certificate authentication is currently experiencing issues")
+                logger.info(f"The app registration should already be configured as manager of '{group_name}' from previous setup")
+                return False
+            
+            # Check for permissions errors
+            if "sufficient permissions" in result.stdout or "manager of the group" in result.stdout:
+                logger.error(f"PERMISSIONS ERROR: App registration needs manager rights for group '{group_name}'")
+                logger.error(f"MANUAL ACTION REQUIRED: Run this PowerShell command as an Exchange admin:")
+                logger.error(f"  Set-DistributionGroup -Identity '{group_name}' -ManagedBy @{{Add='{client_id}'}}")
+                logger.error(f"  Or add the app registration as a manager in Exchange Admin Center")
+                return False
+            else:
+                logger.error(f"PowerShell command failed (exit code {result.returncode})")
+                logger.error(f"STDOUT: {result.stdout}")
+                logger.error(f"STDERR: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error adding user {user_email} to group {group_name} via PowerShell: {e}")
+            return False
+
+    def add_user_to_groups_by_department(self, user_email: str, department: str) -> Dict[str, Any]:
+        """Add user to Microsoft 365 groups based on their department."""
+        results = {
+            'success': False,
+            'groups_added': [],
+            'groups_failed': [],
+            'errors': []
+        }
+        
+        try:
+            logger.info(f"Processing Microsoft 365 group assignment for {user_email} in department: {department}")
+            
+            # Define groups based on department with their types
+            groups_config = {
+                "Opensense": "distribution",     # Mail-enabled security group
+                "Sales Apps": "distribution",   # Mail-enabled security group  
+                "Apple ID": "distribution"      # Also try as distribution group with PowerShell
+            }
+            
+            # Everyone gets Opensense and Apple ID
+            groups_to_add = ["Opensense", "Apple ID"]
+            
+            # Add Sales Apps for AE/SDR users only
+            if department in ["AE - Account Executives", "SDR - Sales Development Reps"]:
+                groups_to_add.append("Sales Apps")
+            
+            logger.info(f"Groups to assign: {groups_to_add}")
+            
+            # Add user to each group based on type
+            for group_name in groups_to_add:
+                group_type = groups_config.get(group_name, "distribution")
+                
+                if group_type == "distribution":
+                    # Use PowerShell for distribution groups
+                    if self.add_user_to_group(user_email, group_name):
+                        results['groups_added'].append(group_name)
+                    else:
+                        results['groups_failed'].append(group_name)
+                        error_msg = f"Failed to add user to distribution group: {group_name}"
+                        logger.error(error_msg)
+                        results['errors'].append(error_msg)
+                        
+                elif group_type == "m365":
+                    # Handle Microsoft 365 Groups (Apple ID) 
+                    logger.warning(f"Microsoft 365 Group '{group_name}' requires manual management")
+                    logger.warning(f"MANUAL ACTION: Please add {user_email} to '{group_name}' in Exchange Admin Center > Groups")
+                    logger.warning(f"REASON: M365 Groups require different API permissions than distribution groups")
+                    results['groups_failed'].append(group_name)
+                    results['errors'].append(f"Manual action required for M365 Group: {group_name}")
+            
+            # Set overall success if at least one group was added
+            results['success'] = len(results['groups_added']) > 0
+            
+            if results['success']:
+                success_msg = f"Successfully added {user_email} to {len(results['groups_added'])} Microsoft 365 groups: {results['groups_added']}"
+                logger.info(success_msg)
+                
+                if results['groups_failed']:
+                    failed_msg = f"Manual action required for {len(results['groups_failed'])} groups: {results['groups_failed']}"
+                    logger.warning(failed_msg)
+            else:
+                failed_msg = f"Failed to add {user_email} to any Microsoft 365 groups automatically"
+                logger.error(failed_msg)
+                
+        except Exception as e:
+            error_msg = f"Error in Microsoft 365 group assignment for {user_email}: {e}"
+            logger.error(error_msg)
+            results['errors'].append(error_msg)
+        
+        return results
+
+# Test function
+def test_microsoft_service():
+    """Test Microsoft 365 service functionality."""
+    try:
+        ms = MicrosoftService()
+        
+        # Test user lookup
+        test_email = "test@filevine.com"  # Replace with actual test email
+        user = ms.find_user_by_email(test_email)
+        
+        if user:
+            print(f"Found user: {user.get('displayName')} ({test_email})")
+        else:
+            print(f"User not found: {test_email}")
+            
+    except Exception as e:
+        print(f"Test failed: {e}")
+
+# Aliases for compatibility with import expectations
+MicrosoftTermination = MicrosoftService  # For existing termination workflows
 
 if __name__ == "__main__":
-    test_microsoft_termination()
+    test_microsoft_service()

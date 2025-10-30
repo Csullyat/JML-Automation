@@ -18,7 +18,7 @@ termination:
       - "SSO-Google_Workspace_EnterpriseUsers"
     zoom:
       - "SSO-Zoom_Member_Basic"
-      - "SSO-Zoom_Member_Pro"
+      - "SSO-Zoom_Member_Premier"
       - "SSO-Zoom_Member_Pro_Phone"
     domo:
       - "SSO-Domo"
