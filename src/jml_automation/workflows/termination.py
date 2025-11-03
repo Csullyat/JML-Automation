@@ -771,6 +771,9 @@ class TerminationWorkflow:
             # Log summary
             self._log_termination_summary(termination_results)
             
+            # Send Slack notification
+            self._send_slack_notification(termination_results)
+            
             return termination_results
             
         except Exception as e:
@@ -1118,6 +1121,54 @@ class TerminationWorkflow:
             
         except Exception as e:
             logger.error(f"Failed to log termination summary: {e}")
+
+    def _send_slack_notification(self, results: Dict) -> None:
+        """Send Slack notification for termination completion."""
+        try:
+            from jml_automation.services.slack import SlackService
+            
+            user_email = results.get("user_email")
+            if not user_email:
+                logger.warning("No user email found for Slack notification")
+                return
+            
+            # Extract user name from email if available
+            user_name = user_email.split('@')[0].replace('.', ' ').title()
+            
+            # Ensure proper first name last name formatting with space
+            if user_name and ' ' not in user_name:
+                # If no space, try to split camelCase or add space before last capital letter
+                import re
+                user_name = re.sub(r'([a-z])([A-Z])', r'\1 \2', user_name)
+            
+            # Get phase results
+            phase_results = results.get("phase_success", {})
+            
+            # Get other details
+            ticket_id = results.get("ticket_id")
+            manager_email = results.get("manager_email")
+            overall_success = results.get("overall_success", False)
+            duration_seconds = results.get("duration_seconds")
+            
+            # Initialize and send Slack notification
+            slack = SlackService(config=self.config)
+            success = slack.send_termination_notification(
+                user_email=user_email,
+                user_name=user_name,
+                ticket_id=ticket_id,
+                manager_email=manager_email,
+                phase_results=phase_results,
+                overall_success=overall_success,
+                duration_seconds=duration_seconds
+            )
+            
+            if success:
+                logger.info(f"Slack termination notification sent for {user_email}")
+            else:
+                logger.warning(f"Slack termination notification failed for {user_email}")
+                
+        except Exception as e:
+            logger.warning(f"Slack termination notification failed (non-fatal): {e}")
 
     def _log_batch_summary(self, total_processed: int, total_successful: int, processed_users: List[Dict]) -> None:
         """Log batch processing summary."""

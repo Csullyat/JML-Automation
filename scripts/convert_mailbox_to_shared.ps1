@@ -43,17 +43,37 @@ try {
     } else {
         # Convert to shared mailbox
         Set-Mailbox -Identity $UserEmail -Type Shared -Confirm:$false
-        Write-Host "Mailbox conversion initiated"
+        Write-Host "Conversion command completed."
         
-        # Wait for propagation
-        Start-Sleep -Seconds 10
+        # Wait for changes to propagate...
+        Write-Host "Waiting for changes to propagate..."
+        Start-Sleep -Seconds 15
         
-        # Verify conversion
-        $mailbox = Get-Mailbox -Identity $UserEmail
-        Write-Host "Mailbox type is now: $($mailbox.RecipientTypeDetails)"
+        # Verify conversion with retry logic
+        $maxRetries = 3
+        $retryCount = 0
+        $conversionSuccessful = $false
         
-        if ($mailbox.RecipientTypeDetails -ne "SharedMailbox") {
-            Write-Warning "Mailbox may still be converting. Current type: $($mailbox.RecipientTypeDetails)"
+        while ($retryCount -lt $maxRetries -and -not $conversionSuccessful) {
+            Write-Host "Verifying conversion..."
+            $mailbox = Get-Mailbox -Identity $UserEmail
+            
+            if ($mailbox.RecipientTypeDetails -eq "SharedMailbox") {
+                Write-Host "New mailbox type: SharedMailbox"
+                Write-Host "SUCCESS: Mailbox successfully converted to SharedMailbox"
+                $conversionSuccessful = $true
+            } else {
+                $retryCount++
+                Write-Host "New mailbox type: $($mailbox.RecipientTypeDetails)"
+                
+                if ($retryCount -lt $maxRetries) {
+                    Write-Host "Conversion still in progress, waiting 10 more seconds... (attempt $retryCount/$maxRetries)"
+                    Start-Sleep -Seconds 10
+                } else {
+                    Write-Host "ERROR: Mailbox type is $($mailbox.RecipientTypeDetails), expected SharedMailbox"
+                    exit 1
+                }
+            }
         }
     }
     

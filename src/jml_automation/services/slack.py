@@ -130,3 +130,100 @@ class SlackService(BaseService):
         except Exception as e:
             logger.error(f"Failed to send Slack notification: {e}")
             return False
+
+    def send_termination_notification(
+        self,
+        user_email: str,
+        user_name: Optional[str] = None,
+        ticket_id: Optional[str] = None,
+        manager_email: Optional[str] = None,
+        phase_results: Optional[Dict[str, bool]] = None,
+        overall_success: bool = True,
+        duration_seconds: Optional[float] = None
+    ) -> bool:
+        """Send notification for completed termination."""
+        try:
+            # Extract name from email if not provided
+            if not user_name:
+                name_part = user_email.split('@')[0].replace('.', ' ').title()
+                # Split camelCase names properly (cristinaromero -> Cristina Romero)
+                import re
+                # Insert space before capital letters that follow lowercase letters
+                name_with_spaces = re.sub(r'([a-z])([A-Z])', r'\1 \2', name_part)
+                user_name = name_with_spaces
+            
+            # Additional cleanup for user_name if it was provided
+            if user_name and ' ' not in user_name:
+                import re
+                user_name = re.sub(r'([a-z])([A-Z])', r'\1 \2', user_name)
+            
+            # Build status summary
+            if overall_success:
+                status_text = "Termination Completed Successfully"
+                status_color = "good"
+            else:
+                status_text = "⚠️ Termination Completed with Issues"
+                status_color = "warning"
+            
+
+            
+            # Build ticket info
+            ticket_text = f"#{ticket_id}" if ticket_id else "No ticket ID"
+            ticket_url = None
+            if ticket_id:
+                user_slug = user_name.lower().replace(" ", "-")
+                ticket_url = f"https://it.filevine.com/incidents/{ticket_id}-{user_slug}-termination"
+            
+            # Build duration text
+            duration_text = f"{duration_seconds:.1f}s" if duration_seconds else "Unknown"
+            
+            message = {
+                "channel": self.channel,
+                "text": "User Termination Completed",
+                "blocks": [
+                    {
+                        "type": "header",
+                        "text": {
+                            "type": "plain_text",
+                            "text": status_text
+                        }
+                    },
+                    {
+                        "type": "section",
+                        "fields": [
+                            {"type": "mrkdwn", "text": f"*User:*\n{user_name}"},
+                            {"type": "mrkdwn", "text": f"*Email:*\n{user_email}"},
+                            {"type": "mrkdwn", "text": f"*Manager:*\n{manager_email or 'Not specified'}"},
+                            {"type": "mrkdwn", "text": f"*Ticket:*\n{f'<{ticket_url}|{ticket_text}>' if ticket_url else ticket_text}"}
+                        ]
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {"type": "mrkdwn", "text": f"Duration: {duration_text} | Status: {'Complete' if overall_success else 'Issues detected'}"}
+                        ]
+                    }
+                ]
+            }
+            
+            response = self.session.post(
+                f"{self.SLACK_API_URL}/chat.postMessage",
+                json=message,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("ok"):
+                    logger.info(f"Slack termination notification sent for {user_email}")
+                    return True
+                else:
+                    logger.error(f"Slack API error: {result.get('error')}")
+                    return False
+            else:
+                logger.error(f"Slack HTTP error: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to send Slack termination notification: {e}")
+            return False

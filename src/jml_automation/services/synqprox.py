@@ -103,29 +103,133 @@ class SynqProxService(BaseService):
             # Wait for page to load
             time.sleep(3)
             
-            # Give the site additional time to fully load before entering credentials
-            logger.info("Waiting 3 seconds for site to fully load before entering credentials...")
-            time.sleep(3)
+            # Give the Flutter app time to load and render - this is a dynamic web app
+            logger.info("Waiting for Flutter app to fully load and render login form...")
             
-            # Enter credentials using JavaScript with proper sequence
+            # Wait up to 30 seconds for input elements to appear (Flutter app loading)
+            max_wait_time = 30
+            wait_interval = 2
+            inputs_found = False
+            
+            for wait_attempt in range(max_wait_time // wait_interval):
+                time.sleep(wait_interval)
+                input_count = self.driver.execute_script("return document.querySelectorAll('input').length;")
+                logger.info(f"Flutter load check {wait_attempt + 1}: Found {input_count} input elements")
+                
+                if input_count >= 2:  # Expecting at least email and password fields
+                    inputs_found = True
+                    logger.info("Flutter app has loaded - input fields detected!")
+                    break
+                    
+                if wait_attempt == 0:
+                    logger.info("Initial check - Flutter app still loading, will continue waiting...")
+            
+            if not inputs_found:
+                logger.error("Flutter app failed to load input fields within timeout period")
+            
+            # Additional small wait after inputs appear to ensure full rendering
+            time.sleep(2)
+            
+            # DEBUG: Capture page information for debugging
+            try:
+                page_debug = self.driver.execute_script("""
+                    return {
+                        url: window.location.href,
+                        title: document.title,
+                        inputs: Array.from(document.querySelectorAll('input')).map(i => ({
+                            type: i.type,
+                            name: i.name || '',
+                            id: i.id || '',
+                            className: i.className || '',
+                            placeholder: i.placeholder || '',
+                            autocomplete: i.autocomplete || '',
+                            visible: i.offsetWidth > 0 && i.offsetHeight > 0
+                        })),
+                        forms: Array.from(document.querySelectorAll('form')).length,
+                        bodySnapshot: document.body ? document.body.innerHTML.substring(0, 2000) : 'NO BODY'
+                    };
+                """)
+                logger.error(f"SynQ Prox DEBUG - Current URL: {page_debug['url']}")
+                logger.error(f"SynQ Prox DEBUG - Page Title: {page_debug['title']}")
+                logger.error(f"SynQ Prox DEBUG - Number of inputs found: {len(page_debug['inputs'])}")
+                logger.error(f"SynQ Prox DEBUG - Number of forms found: {page_debug['forms']}")
+                
+                for i, input_info in enumerate(page_debug['inputs']):
+                    logger.error(f"SynQ Prox DEBUG - Input {i}: type='{input_info['type']}' name='{input_info['name']}' id='{input_info['id']}' class='{input_info['className']}' placeholder='{input_info['placeholder']}' visible={input_info['visible']}")
+                
+                # Also log first part of body for reference
+                logger.error(f"SynQ Prox DEBUG - Body snippet: {page_debug['bodySnapshot'][:500]}...")
+                
+                # Save screenshot for debugging
+                screenshot_path = os.path.join(os.getcwd(), "screenshots", f"synqprox_debug_{int(time.time())}.png")
+                self.driver.save_screenshot(screenshot_path)
+                logger.error(f"SynQ Prox DEBUG - Screenshot saved to: {screenshot_path}")
+                
+            except Exception as e:
+                logger.error(f"SynQ Prox DEBUG - Failed to capture page info: {e}")
+            
+            # Enter credentials using JavaScript with proper sequence and enhanced selectors
             login_success = self.driver.execute_script(f"""
-                // Step 1: Find and fill email field
-                var usernameField = document.querySelector('input[type="email"]') || 
-                                   document.querySelector('input[placeholder*="email"]') || 
-                                   document.querySelector('input[placeholder*="Email"]') ||
-                                   document.querySelector('input[name="email"]') ||
-                                   document.querySelector('input[name="username"]');
+                // Enhanced selectors for Flutter web apps and modern login forms
+                var usernameField = 
+                    document.querySelector('input[type="email"]') || 
+                    document.querySelector('input[type="text"]') ||
+                    document.querySelector('input[placeholder*="email"]') || 
+                    document.querySelector('input[placeholder*="Email"]') ||
+                    document.querySelector('input[placeholder*="username"]') ||
+                    document.querySelector('input[placeholder*="Username"]') ||
+                    document.querySelector('input[placeholder*="user"]') ||
+                    document.querySelector('input[placeholder*="User"]') ||
+                    document.querySelector('input[name="email"]') ||
+                    document.querySelector('input[name="username"]') ||
+                    document.querySelector('input[name="user"]') ||
+                    document.querySelector('input[id*="email"]') ||
+                    document.querySelector('input[id*="username"]') ||
+                    document.querySelector('input[id*="user"]') ||
+                    document.querySelector('input[class*="email"]') ||
+                    document.querySelector('input[class*="username"]') ||
+                    document.querySelector('input[class*="user"]') ||
+                    document.querySelector('input[autocomplete="email"]') ||
+                    document.querySelector('input[autocomplete="username"]') ||
+                    document.querySelector('input[data-testid*="email"]') ||
+                    document.querySelector('input[data-testid*="username"]') ||
+                    document.querySelector('input[data-cy*="email"]') ||
+                    document.querySelector('input[data-cy*="username"]') ||
+                    // Flutter and generic fallbacks
+                    document.querySelector('flt-text-editing input') ||
+                    document.querySelector('.flt-text-field input') ||
+                    document.querySelector('form input[type="text"]:first-of-type') ||
+                    document.querySelector('form input:not([type="password"]):not([type="hidden"]):not([type="submit"]):first-of-type') ||
+                    document.querySelector('input:not([type="password"]):not([type="hidden"]):not([type="submit"]):first-of-type');
                 
                 if (usernameField) {{
-                    usernameField.focus();
-                    usernameField.value = '';
-                    usernameField.value = '{username}';
-                    usernameField.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    usernameField.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    console.log('Email entered: {username}');
-                    return 'email_entered';
+                    try {{
+                        usernameField.focus();
+                        usernameField.value = '';
+                        usernameField.value = '{username}';
+                        
+                        // Trigger multiple events for Flutter/React compatibility
+                        usernameField.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        usernameField.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        usernameField.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                        
+                        console.log('Email entered: {username}');
+                        return 'email_entered';
+                    }} catch (e) {{
+                        console.log('Error entering email:', e);
+                        return 'email_entry_error';
+                    }}
                 }} else {{
-                    console.log('Email field not found');
+                    console.log('Email field not found - available inputs:', Array.from(document.querySelectorAll('input')).map(i => {{
+                        return {{
+                            type: i.type,
+                            name: i.name,
+                            id: i.id,
+                            className: i.className,
+                            placeholder: i.placeholder,
+                            visible: i.offsetWidth > 0 && i.offsetHeight > 0
+                        }};
+                    }}));
                     return 'email_field_not_found';
                 }}
             """)
@@ -138,36 +242,74 @@ class SynqProxService(BaseService):
             active_element.send_keys(Keys.TAB)
             time.sleep(0.5)  # Brief pause for focus to move
             
-            # Step 2: Enter password in the now-focused password field
+            # Step 2: Enter password in the now-focused password field with enhanced selectors
             password_success = self.driver.execute_script(f"""
-                var passwordField = document.querySelector('input[type="password"]');
-                if (passwordField && document.activeElement === passwordField) {{
-                    passwordField.value = '';
-                    passwordField.value = '{password}';
-                    passwordField.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    passwordField.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    console.log('Password entered in focused field');
-                    return 'password_entered_in_focused_field';
+                var passwordField = 
+                    document.querySelector('input[type="password"]') ||
+                    document.querySelector('input[name="password"]') ||
+                    document.querySelector('input[id*="password"]') ||
+                    document.querySelector('input[class*="password"]') ||
+                    document.querySelector('input[placeholder*="password"]') ||
+                    document.querySelector('input[placeholder*="Password"]') ||
+                    document.querySelector('input[autocomplete="current-password"]') ||
+                    document.querySelector('input[data-testid*="password"]');
+                
+                if (passwordField) {{
+                    // Try to use the field if it's already focused
+                    if (document.activeElement === passwordField) {{
+                        passwordField.value = '';
+                        passwordField.value = '{password}';
+                        passwordField.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        passwordField.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        console.log('Password entered in already-focused field');
+                        return 'password_entered_in_focused_field';
+                    }} else {{
+                        // Focus the password field manually and enter password
+                        try {{
+                            passwordField.focus();
+                            passwordField.value = '';
+                            passwordField.value = '{password}';
+                            passwordField.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            passwordField.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            console.log('Password entered with manual focus');
+                            return 'password_entered_manual_focus';
+                        }} catch (e) {{
+                            console.log('Failed to focus password field:', e);
+                            return 'password_focus_failed';
+                        }}
+                    }}
                 }} else {{
-                    // Fallback: focus password field manually if TAB didn't work
-                    passwordField.focus();
-                    passwordField.value = '';
-                    passwordField.value = '{password}';
-                    passwordField.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    passwordField.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    console.log('Password entered with manual focus');
-                    return 'password_entered_manual_focus';
+                    console.log('Password field not found - available inputs:', Array.from(document.querySelectorAll('input')).map(i => i.type + ':' + i.name + ':' + i.id));
+                    return 'password_field_not_found';
                 }}
             """)
             
             logger.info(f"Password entry result: {password_success}")
             
-            # Step 3: Now we should be in the password field - press Enter
+            # Step 3: Submit the form - press Enter or find submit button
             logger.info("PRESSING ENTER to submit form (should be focused on password field)")
             try:
-                active_element = self.driver.switch_to.active_element
-                active_element.send_keys(Keys.ENTER)
-                logger.info("SUCCESS: Enter key sent from password field")
+                # Check if password entry was successful
+                if password_success and 'password_field_not_found' not in password_success:
+                    active_element = self.driver.switch_to.active_element
+                    active_element.send_keys(Keys.ENTER)
+                    logger.info("SUCCESS: Enter key sent from password field")
+                else:
+                    # Fallback: try to find and click submit button
+                    logger.info("Password field issues detected, trying submit button")
+                    submit_result = self.driver.execute_script("""
+                        var submitBtn = document.querySelector('button[type="submit"]') ||
+                                       document.querySelector('input[type="submit"]') ||
+                                       document.querySelector('button:contains("Sign in")') ||
+                                       document.querySelector('button:contains("Login")') ||
+                                       document.querySelector('form button');
+                        if (submitBtn) {
+                            submitBtn.click();
+                            return 'submit_clicked';
+                        }
+                        return 'submit_not_found';
+                    """)
+                    logger.info(f"Submit button result: {submit_result}")
             except Exception as e:
                 logger.error(f"ERROR: Failed to send Enter key: {e}")
                 return False
