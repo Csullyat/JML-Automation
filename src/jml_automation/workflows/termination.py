@@ -90,6 +90,211 @@ class TerminationWorkflow:
             logger.error(f"Failed to initialize services: {e}")
             raise
 
+    # ========== Email Lookup Functions ==========
+    
+    def lookup_user_email_by_display_name(self, display_name: str) -> Optional[str]:
+        """
+        Look up the actual email address in Okta using the display name from the ticket.
+        Since the display name in tickets is always from Okta, this ensures we get the correct email.
+        
+        Args:
+            display_name: Display name from the termination ticket (e.g. "John Doe")
+            
+        Returns:
+            The actual email address from Okta, or None if not found
+        """
+        try:
+            logger.info(f"Looking up email for display name: '{display_name}'")
+            
+            # Clean up the display name
+            display_name = display_name.strip()
+            if not display_name:
+                logger.warning("Empty display name provided")
+                return None
+            
+            # Search Okta users by display name
+            # We'll use the search API to find users with matching display names
+            search_results = self.okta.search_users(f'profile.displayName eq "{display_name}"')
+            
+            if not search_results:
+                # Try a fuzzy search approach
+                logger.info(f"Exact match not found, trying fuzzy search for: {display_name}")
+                # Search for users with similar names
+                fuzzy_results = self.okta.search_users(f'profile.displayName pr and profile.displayName sw "{display_name.split()[0]}"')
+                
+                # Filter results to find the best match - prioritize longer email prefixes
+                best_match = None
+                best_score = 0
+                
+                for user in fuzzy_results:
+                    user_display_name = user.get('profile', {}).get('displayName', '')
+                    user_email = user.get('profile', {}).get('email', '')
+                    
+                    # Exact display name match gets highest priority
+                    if user_display_name.lower() == display_name.lower():
+                        search_results = [user]
+                        logger.info(f"Found exact display name match: {user_email}")
+                        break
+                    
+                    # For similar names, prefer longer email prefixes (e.g., "christopher" over "chris")
+                    email_prefix = user_email.split('@')[0] if '@' in user_email else ''
+                    name_parts = display_name.lower().split()
+                    
+                    # Score based on email prefix length and name matching
+                    score = 0
+                    if name_parts and any(part in email_prefix.lower() for part in name_parts):
+                        score = len(email_prefix)  # Prefer longer email prefixes
+                        if user_display_name.lower().startswith(display_name.lower()):
+                            score += 100  # Bonus for display name prefix match
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_match = user
+                
+                if best_match and not search_results:
+                    search_results = [best_match]
+                    logger.info(f"Selected best fuzzy match: {best_match.get('profile', {}).get('email')} (score: {best_score})")
+            
+            if not search_results:
+                logger.warning(f"No Okta user found with display name: {display_name}")
+                return None
+            
+            if len(search_results) > 1:
+                logger.warning(f"Multiple users found with display name '{display_name}': {[u.get('profile', {}).get('email') for u in search_results]}")
+                # Use the first active user, or first user if no active ones
+                active_users = [u for u in search_results if u.get('status') == 'ACTIVE']
+                if active_users:
+                    user = active_users[0]
+                else:
+                    user = search_results[0]
+            else:
+                user = search_results[0]
+            
+            email = user.get('profile', {}).get('email')
+            user_status = user.get('status', 'UNKNOWN')
+            
+            if email:
+                logger.info(f"Found email for '{display_name}': {email} (Status: {user_status})")
+                return email
+            else:
+                logger.warning(f"User found but no email address: {user}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error looking up email for display name '{display_name}': {e}")
+            return None
+
+    def resolve_user_email_from_ticket(self, ticket_data: Dict) -> Optional[str]:
+        """
+        Resolve the correct user email from ticket data using Okta lookup.
+        
+        This function:
+        1. First tries to extract email directly from ticket fields
+        2. If no email found, extracts display name and looks it up in Okta
+        3. Returns the verified email address from Okta
+        
+        Args:
+            ticket_data: Raw ticket data from SolarWinds
+            
+        Returns:
+            The correct email address, or None if not found
+        """
+        try:
+            # Method 1: Try to get email directly from ticket fields
+            direct_email = extract_user_email_from_ticket(ticket_data)
+            if direct_email:
+                logger.info(f"Found direct email from ticket: {direct_email}")
+                # Verify this email exists in Okta
+                user = self.okta.get_user_by_email(direct_email)
+                if user:
+                    logger.info(f"Verified email {direct_email} exists in Okta")
+                    return direct_email
+                else:
+                    logger.warning(f"Email {direct_email} from ticket not found in Okta, trying display name lookup")
+
+            # Method 2: Extract display name and look up in Okta
+            display_name = None
+
+            # Try to get name from ticket title (e.g. "Employee Termination - John Doe")
+            ticket_name = ticket_data.get("name", "")
+            if "Employee Termination" in ticket_name:
+                display_name = ticket_name.replace("Employee Termination - ", "").strip()
+
+            # Try custom fields for employee name
+            if not display_name:
+                custom_fields_values = ticket_data.get('custom_fields_values', [])
+                for field in custom_fields_values:
+                    field_name = (field.get('name', '') or '').strip().lower()
+                    if field_name == 'employee to terminate':
+                        field_value = field.get('value', '').strip()
+                        # If it's not an email, assume it's a display name
+                        if field_value and '@' not in field_value:
+                            display_name = field_value
+                            break
+
+            # Try parsed employee name
+            if not display_name:
+                display_name = ticket_data.get('employee_name')
+
+            if display_name:
+                logger.info(f"Extracted display name from ticket: '{display_name}'")
+                email = self.lookup_user_email_by_display_name(display_name)
+                if email:
+                    return email
+                else:
+                    logger.warning(f"No Okta user found for display name '{display_name}'. Not constructing email from name.")
+                    return None
+
+            logger.warning(f"Could not resolve user email from ticket {ticket_data.get('id', 'unknown')}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error resolving user email from ticket: {e}")
+            return None
+
+    def resolve_manager_email_from_ticket(self, ticket_data: Dict) -> Optional[str]:
+        """
+        Resolve the correct manager email from ticket data using Okta lookup.
+        
+        Args:
+            ticket_data: Raw ticket data from SolarWinds
+            
+        Returns:
+            The correct manager email address, or None if not found
+        """
+        try:
+            from jml_automation.parsers.solarwinds_parser import extract_manager_email_from_ticket
+            
+            # Try to get manager email directly from ticket fields
+            direct_manager_email = extract_manager_email_from_ticket(ticket_data)
+            if direct_manager_email:
+                logger.info(f"Found direct manager email from ticket: {direct_manager_email}")
+                # Verify this email exists in Okta
+                user = self.okta.get_user_by_email(direct_manager_email)
+                if user:
+                    logger.info(f"Verified manager email {direct_manager_email} exists in Okta")
+                    return direct_manager_email
+                else:
+                    logger.warning(f"Manager email {direct_manager_email} from ticket not found in Okta")
+            
+            # Handle manager employee ID lookups (if using LOOKUP_EMPLOYEE_ID: format)
+            if direct_manager_email and direct_manager_email.startswith("LOOKUP_EMPLOYEE_ID:"):
+                employee_id = direct_manager_email.split(":", 1)[1]
+                logger.info(f"Looking up manager employee ID {employee_id} in Okta")
+                manager_email = self.okta.lookup_email_by_employee_id(employee_id)
+                if manager_email:
+                    logger.info(f"Found manager email for employee ID {employee_id}: {manager_email}")
+                    return manager_email
+                else:
+                    logger.warning(f"Manager employee ID {employee_id} not found in Okta")
+            
+            logger.warning("Could not resolve manager email from ticket")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error resolving manager email from ticket: {e}")
+            return None
+
     # ========== Core Okta Termination (unified from both files) ==========
     
     def execute_okta_termination(
@@ -310,7 +515,7 @@ class TerminationWorkflow:
             phases: List of phases to execute ['okta','microsoft','google','zoom','synqprox','domo','lucid','workato']
         """
         if phases is None:
-            phases = ["okta", "microsoft", "google", "zoom", "synqprox", "domo", "adobe", "lucid", "workato", "iru"]
+            phases = ["iru", "okta", "microsoft", "google", "zoom", "synqprox", "domo", "adobe", "lucid", "workato"]
 
         logger.info(f"Starting multi-phase termination for {user_email}")
         logger.info(f"Phases to execute: {', '.join(phases)}")
@@ -335,7 +540,42 @@ class TerminationWorkflow:
         }
 
         try:
-            # Phase 1: Okta (highest priority - immediate security)
+            # Phase 0: Iru (Device Management - MUST happen BEFORE Okta deactivation)
+            if "iru" in phases:
+                if progress_callback:
+                    progress_callback("Phase 0: Iru Device Lock", "starting")
+                logger.info(" PHASE 0: Iru device management - locking devices BEFORE Okta deactivation")
+                try:
+                    iru_results = self.iru.execute_complete_termination(user_email)
+                    termination_results["iru_results"] = iru_results
+                    
+                    if iru_results.get("success"):
+                        devices_processed = iru_results.get("devices_processed", 0)
+                        if devices_processed > 0:
+                            if progress_callback:
+                                progress_callback("Phase 0: Iru Device Lock", "success", f"Processed {devices_processed} devices - unassigned, locked, and moved to Inventory Only")
+                            termination_results["summary"].append(f"SUCCESS: Iru: {devices_processed} devices processed (unassigned, locked, inventory-only)")
+                        else:
+                            if progress_callback:
+                                progress_callback("Phase 0: Iru Device Lock", "success", "No devices found for user")
+                            termination_results["summary"].append("SUCCESS: Iru: No devices found for user")
+                        termination_results["phase_success"]["iru"] = True
+                    else:
+                        error_details = "; ".join(iru_results.get("errors", ["Unknown error"]))
+                        if progress_callback:
+                            progress_callback("Phase 0: Iru Device Lock", "error", f"Device management failed: {error_details}")
+                        termination_results["summary"].append(f"ERROR: Iru: {error_details}")
+                        termination_results["phase_success"]["iru"] = False
+                        termination_results["errors"].append(f"Iru device management failed: {error_details}")
+                        
+                except Exception as e:
+                    logger.error(f"Iru device management failed: {e}")
+                    if progress_callback:
+                        progress_callback("Phase 0: Iru Device Lock", "error", f"Critical error: {str(e)}")
+                    termination_results["phase_success"]["iru"] = False
+                    termination_results["errors"].append(f"Iru device management failed: {str(e)}")
+
+            # Phase 1: Okta (highest priority for user security - after device lock)
             if "okta" in phases:
                 if progress_callback:
                     progress_callback("Phase 1: Okta Security Cleanup", "starting")
@@ -690,41 +930,6 @@ class TerminationWorkflow:
                     termination_results["phase_success"]["workato"] = False
                     termination_results["errors"].append(f"Workato termination failed: {str(e)}")
 
-            # Phase 10: Iru (Device Management - always process)
-            if "iru" in phases:
-                if progress_callback:
-                    progress_callback("Phase 10: Iru", "starting")
-                logger.info(" PHASE 10: Iru device management termination (always process)")
-                try:
-                    iru_results = self.iru.execute_complete_termination(user_email)
-                    termination_results["iru_results"] = iru_results
-                    
-                    if iru_results.get("success"):
-                        devices_processed = iru_results.get("devices_processed", 0)
-                        if devices_processed > 0:
-                            if progress_callback:
-                                progress_callback("Phase 10: Iru", "success", f"Processed {devices_processed} devices - unassigned, locked, and moved to Inventory Only")
-                            termination_results["summary"].append(f"SUCCESS: Iru: {devices_processed} devices processed (unassigned, locked, inventory-only)")
-                        else:
-                            if progress_callback:
-                                progress_callback("Phase 10: Iru", "success", "No devices found for user")
-                            termination_results["summary"].append("SUCCESS: Iru: No devices found for user")
-                        termination_results["phase_success"]["iru"] = True
-                    else:
-                        error_details = "; ".join(iru_results.get("errors", ["Unknown error"]))
-                        if progress_callback:
-                            progress_callback("Phase 10: Iru", "error", f"Device management failed: {error_details}")
-                        termination_results["summary"].append(f"ERROR: Iru: {error_details}")
-                        termination_results["phase_success"]["iru"] = False
-                        termination_results["errors"].append(f"Iru device management failed: {error_details}")
-                        
-                except Exception as e:
-                    logger.error(f"Iru device management failed: {e}")
-                    if progress_callback:
-                        progress_callback("Phase 10: Iru", "error", f"Critical error: {str(e)}")
-                    termination_results["phase_success"]["iru"] = False
-                    termination_results["errors"].append(f"Iru device management failed: {str(e)}")
-
             # Determine overall success - all executed phases must succeed
             executed_phases = [phase for phase in phases if phase in termination_results["phase_success"]]
             overall_success = all(
@@ -746,7 +951,7 @@ class TerminationWorkflow:
                         self.solarwinds.update_ticket_status(
                             ticket_id,
                             "In Progress",
-                            notes="Sessions cleared and deactivated in Okta. Appropriate deletion and data transfer completed from Microsoft, Google, Zoom, Domo, Lucid, Synq, Adobe, and Workato."
+                            notes="Devices locked in Kandji. Sessions cleared and deactivated in Okta. Appropriate deletion and data transfer completed from Microsoft, Google, Zoom, Domo, Lucid, Synq, Adobe, and Workato."
                         )
                         termination_results["summary"].append(f" Ticket {ticket_id} updated to 'In Progress'")
                         logger.info(f"Updated ticket {ticket_id} to 'In Progress' - all phases successful")
@@ -818,19 +1023,24 @@ class TerminationWorkflow:
             logger.error("Parsed ticket is not a TerminationTicket (id=%s)", raw.get("id"))
             return 3
 
-        # Extract user email
+        # Extract user email using enhanced Okta lookup
         user_email = ticket.user.email if ticket.user else None
         if not user_email:
-            user_email = extract_user_email_from_ticket(raw)
+            # Use the new resolve function that checks Okta by display name
+            user_email = self.resolve_user_email_from_ticket(raw)
             
-            # Handle employee ID lookups
+            # Handle employee ID lookups (with display name fallback)
             if user_email and user_email.startswith("LOOKUP_EMPLOYEE_ID:"):
                 employee_id = user_email.split(":", 1)[1]
                 logger.info(f"Looking up employee ID {employee_id} in Okta")
                 user_email = self.okta.lookup_email_by_employee_id(employee_id)
                 if not user_email:
-                    logger.error(f"Could not find email for employee ID {employee_id}")
-                    return 4
+                    logger.warning(f"Employee ID {employee_id} not found, trying display name fallback")
+                    # Try to use display name lookup as fallback
+                    user_email = self.resolve_user_email_from_ticket(raw)
+                    if not user_email:
+                        logger.error(f"Could not find email for employee ID {employee_id} or via display name lookup")
+                        return 4
         
         if not user_email:
             logger.error("No user email found in ticket")
@@ -1132,14 +1342,25 @@ class TerminationWorkflow:
                 logger.warning("No user email found for Slack notification")
                 return
             
-            # Extract user name from email if available
-            user_name = user_email.split('@')[0].replace('.', ' ').title()
+            # Get user name from service results (captured before termination)
+            user_name = None
             
-            # Ensure proper first name last name formatting with space
-            if user_name and ' ' not in user_name:
-                # If no space, try to split camelCase or add space before last capital letter
-                import re
-                user_name = re.sub(r'([a-z])([A-Z])', r'\1 \2', user_name)
+            # Try to get proper name from Microsoft 365 results first (most reliable)
+            microsoft_results = results.get("microsoft_results", {})
+            if microsoft_results and microsoft_results.get("success"):
+                user_name = microsoft_results.get("user_name")
+            
+            # Fallback to Google results if Microsoft didn't have it
+            if not user_name:
+                google_results = results.get("google_results", {})
+                if google_results and google_results.get("success"):
+                    user_name = google_results.get("user_name")
+            
+            # Last resort: Okta results (usually just email)
+            if not user_name:
+                okta_results = results.get("okta_results", {})
+                if okta_results and okta_results.get("success"):
+                    user_name = okta_results.get("user_name")
             
             # Get phase results
             phase_results = results.get("phase_success", {})
@@ -1351,9 +1572,9 @@ def main():
             ticket_subject = ticket_data.get('subject', 'No subject')
             logger.info(f"SUCCESS: Ticket fetched: {ticket_subject}")
             
-            # STEP 2: Extract user and manager emails
+            # STEP 2: Extract user and manager emails using enhanced Okta lookup
             logger.info(" STEP 2: Extracting user and manager information")
-            user_email = extract_user_email_from_ticket(ticket_data)
+            user_email = self.resolve_user_email_from_ticket(ticket_data)
             manager_email = extract_manager_email_from_ticket(ticket_data)
             
             if not user_email:

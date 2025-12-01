@@ -468,6 +468,7 @@ try {{
                 return results
             
             logger.info(f"User FOUND in Microsoft 365: {user.get('displayName')} ({user_email})")
+            results['user_name'] = user.get('displayName')  # Store for Slack notification
             results['actions_completed'].append(f"User found in Microsoft 365: {user.get('displayName')}")
             
             # Step 2: Check if manager exists in Microsoft 365
@@ -607,9 +608,81 @@ try {{
 
 
 
+    def _check_user_exists_in_exchange(self, user_email: str, max_retries: int = 5) -> bool:
+        """Check if user exists in Exchange Online with retry logic."""
+        import subprocess
+        import os
+        import time
+        
+        for attempt in range(1, max_retries + 1):
+            logger.info(f"Checking if user {user_email} exists in Exchange Online (attempt {attempt}/{max_retries})")
+            
+            ps_script = f'''
+try {{
+    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
+    Connect-ExchangeOnline -AppId '{self.credentials['client_id']}' -Organization 'filevine.com' -CertificateThumbprint '{self.config.get_exchange_certificate_thumbprint()}' -ShowBanner:$false
+    $user = Get-User -Identity '{user_email}' -ErrorAction Stop
+    Write-Host "USER_EXISTS"
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    exit 0
+}} catch {{
+    if ($_.Exception.Message -like "*Couldn't find object*") {{
+        Write-Host "USER_NOT_FOUND"
+    }} else {{
+        Write-Host "ERROR: $($_.Exception.Message)"
+    }}
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    exit 1
+}}
+'''
+            script_path = os.path.join(os.getcwd(), f"temp_check_user_{int(time.time())}.ps1")
+            try:
+                with open(script_path, 'w', encoding='utf-8') as f:
+                    f.write(ps_script)
+                
+                cmd = [
+                    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", script_path
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if result.returncode == 0 and "USER_EXISTS" in result.stdout:
+                    logger.info(f"User {user_email} exists in Exchange Online")
+                    return True
+                elif "USER_NOT_FOUND" in result.stdout:
+                    if attempt < max_retries:
+                        wait_time = min(60, 15 * attempt)  # 15s, 30s, 45s, 60s, 60s
+                        logger.info(f"User {user_email} not found in Exchange, waiting {wait_time} seconds before retry...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.warning(f"User {user_email} still not found in Exchange after {max_retries} attempts")
+                        return False
+                else:
+                    logger.error(f"Error checking user existence: {result.stdout} {result.stderr}")
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"Exception checking user existence: {e}")
+                return False
+            finally:
+                try:
+                    os.remove(script_path)
+                except:
+                    pass
+        
+        return False
+
     def add_user_to_group(self, user_email: str, group_name: str) -> bool:
         """Add user to Microsoft 365 group by email and group name using PowerShell."""
         logger.info(f"Adding user {user_email} to Microsoft 365 group: {group_name}")
+        
+        # First check if user exists in Exchange Online
+        if not self._check_user_exists_in_exchange(user_email):
+            logger.error(f"User {user_email} does not exist in Exchange Online, skipping group assignment to {group_name}")
+            return False
         
         # Use PowerShell directly since it works with our certificate authentication
         return self._add_user_to_group_powershell(user_email, group_name)
@@ -652,8 +725,8 @@ try {{
                 "-File", script_path,
                 "-UserEmail", user_email,
                 "-GroupName", group_name,
-                "-CertThumbprint", cert_thumbprint,
-                "-AppId", client_id
+                "-CertThumbprint", cert_thumbprint or "",
+                "-AppId", client_id or ""
             ], capture_output=True, text=True, timeout=180)
             
             # Check for success
@@ -687,6 +760,92 @@ try {{
             logger.error(f"Error adding user {user_email} to group {group_name} via PowerShell: {e}")
             return False
 
+    def remove_user_from_group(self, user_email: str, group_name: str) -> bool:
+        """Remove user from Microsoft 365 group by email and group name using PowerShell."""
+        logger.info(f"Removing user {user_email} from Microsoft 365 group: {group_name}")
+        
+        # First check if user exists in Exchange Online
+        if not self._check_user_exists_in_exchange(user_email):
+            logger.error(f"User {user_email} does not exist in Exchange Online, skipping group removal from {group_name}")
+            return False
+        
+        # Use PowerShell directly since it works with our certificate authentication
+        return self._remove_user_from_group_powershell(user_email, group_name)
+
+    def _remove_user_from_group_powershell(self, user_email: str, group_name: str) -> bool:
+        """Remove user from mail-enabled security group using PowerShell with certificate authentication."""
+        try:
+            import subprocess
+            logger.info(f"Removing user {user_email} from group {group_name} via PowerShell with certificate auth")
+            
+            # Get Exchange credentials including certificate thumbprint
+            exchange_creds = self.config.get_exchange_credentials()
+            tenant_id = exchange_creds.get('tenant_id', '')
+            client_id = exchange_creds.get('app_id', '')  # Exchange uses 'app_id' key
+            cert_thumbprint = exchange_creds.get('cert_thumbprint', '')
+            
+            if not all([tenant_id, client_id, cert_thumbprint]):
+                logger.error(f"Missing required credentials for certificate authentication:")
+                logger.error(f"  tenant_id: {'✓' if tenant_id else '✗'}")
+                logger.error(f"  client_id: {'✓' if client_id else '✗'}")
+                logger.error(f"  cert_thumbprint: {'✓' if cert_thumbprint else '✗'}")
+                return False
+            
+            # Use PowerShell script file for removal
+            script_path = r"C:\Users\Cody\Desktop\JML_Automation\scripts\remove_user_from_distribution_group.ps1"
+            
+            # Execute PowerShell script using PowerShell 7 (which has all the required modules)
+            powershell_path = r"C:\Program Files\PowerShell\7\pwsh.exe"
+            
+            # Fall back to Windows PowerShell if PowerShell 7 is not available
+            import os
+            if not os.path.exists(powershell_path):
+                powershell_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+                logger.warning("PowerShell 7 not found, falling back to Windows PowerShell 5.1")
+            
+            cmd = [
+                powershell_path, 
+                "-ExecutionPolicy", "Bypass",
+                "-File", script_path,
+                "-UserEmail", user_email,
+                "-GroupName", group_name,
+                "-CertThumbprint", cert_thumbprint,
+                "-AppId", client_id
+            ]
+            
+            logger.info(f"Executing PowerShell command to remove user from group: {' '.join(cmd[:6])}...")  # Don't log sensitive params
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minutes timeout
+            )
+            
+            logger.info(f"PowerShell removal output: {result.stdout}")
+            if result.stderr:
+                logger.warning(f"PowerShell removal stderr: {result.stderr}")
+            
+            if result.returncode == 0:
+                logger.info(f"Successfully removed user {user_email} from group {group_name}")
+                return True
+            elif "not a member" in result.stdout.lower() or "not found in group" in result.stdout.lower():
+                logger.info(f"User {user_email} was not a member of group {group_name} (no action needed)")
+                return True
+            elif "manager of the group" in result.stdout.lower():
+                logger.error(f"PowerShell removal failed: App registration needs manager permissions for group {group_name}")
+                logger.error(f"Manual action required: Add app registration as manager of group {group_name}")
+                return False
+            else:
+                logger.error(f"PowerShell removal command failed (exit code {result.returncode})")
+                logger.error(f"STDOUT: {result.stdout}")
+                logger.error(f"STDERR: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error removing user {user_email} from group {group_name} via PowerShell: {e}")
+            return False
+
     def add_user_to_groups_by_department(self, user_email: str, department: str) -> Dict[str, Any]:
         """Add user to Microsoft 365 groups based on their department."""
         results = {
@@ -703,7 +862,7 @@ try {{
             groups_config = {
                 "Opensense": "distribution",     # Mail-enabled security group
                 "Sales Apps": "distribution",   # Mail-enabled security group  
-                "Apple ID": "distribution"      # Also try as distribution group with PowerShell
+                "Apple ID": "auto"             # Let PowerShell script auto-detect type (M365 or Distribution)
             }
             
             # Everyone gets Opensense and Apple ID
@@ -719,18 +878,18 @@ try {{
             for group_name in groups_to_add:
                 group_type = groups_config.get(group_name, "distribution")
                 
-                if group_type == "distribution":
-                    # Use PowerShell for distribution groups
+                if group_type == "distribution" or group_type == "auto":
+                    # Use PowerShell for distribution groups and auto-detection
                     if self.add_user_to_group(user_email, group_name):
                         results['groups_added'].append(group_name)
                     else:
                         results['groups_failed'].append(group_name)
-                        error_msg = f"Failed to add user to distribution group: {group_name}"
+                        error_msg = f"Failed to add user to group: {group_name}"
                         logger.error(error_msg)
                         results['errors'].append(error_msg)
                         
                 elif group_type == "m365":
-                    # Handle Microsoft 365 Groups (Apple ID) 
+                    # Handle Microsoft 365 Groups manually
                     logger.warning(f"Microsoft 365 Group '{group_name}' requires manual management")
                     logger.warning(f"MANUAL ACTION: Please add {user_email} to '{group_name}' in Exchange Admin Center > Groups")
                     logger.warning(f"REASON: M365 Groups require different API permissions than distribution groups")

@@ -336,6 +336,9 @@ class GoogleTerminationManager:
                     'warnings': [f'User {user_email} not found in Google Workspace']
                 }
             
+            # Store the proper user name for Slack notification
+            user_name = user.get('name', {}).get('fullName', user_email)
+            
             # Step 1: Transfer data to manager (WAIT FOR COMPLETION)
             if manager_email:
                 logger.info(f"Step 1: Transferring data to manager ({manager_email})")
@@ -389,6 +392,7 @@ class GoogleTerminationManager:
                 logger.info(f"Google Workspace termination completed for {user_email}")
                 return {
                     'success': True,
+                    'user_name': user_name,  # Store for Slack notification
                     'actions': actions_taken,
                     'errors': errors,
                     'warnings': []

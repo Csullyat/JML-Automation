@@ -366,6 +366,7 @@ def parse_onboarding(raw: RawTicket) -> OnboardingTicket:
         "office_location_after": (cf.get("Office Location After Onboarding") or None),
         "laptop_style": (cf.get("Laptop Style") or None),
         "delivery_time": (cf.get("delivery time") or None),
+        "hire_type": (cf.get("New Hire Type") or None),
     }
 
     return _safe_build(OnboardingTicket, data)
@@ -462,18 +463,19 @@ def parse_termination(raw: RawTicket) -> TerminationTicket:
 
     # Enhanced email extraction for termination
     email = None
+    employee_id_needs_lookup = None
     employee_field = out.get("employee_to_terminate", "")
     
     if employee_field:
         email = extract_email_from_field(employee_field, "Employee to Terminate")
         # Handle employee ID lookups (marked with special prefix)
         if email and email.startswith("LOOKUP_EMPLOYEE_ID:"):
-            employee_id = email.split(":", 1)[1]
-            log.info(f"Employee ID {employee_id} needs Okta lookup")
+            employee_id_needs_lookup = email.split(":", 1)[1]
+            log.info(f"Employee ID {employee_id_needs_lookup} needs Okta lookup")
             email = None  # Will be resolved later
     
     # Fallback to explicit email field
-    if not email:
+    if not email and not employee_id_needs_lookup:
         email = _norm_email(cf.get("Employee Email"))
     
     # Extract name - enhanced logic
@@ -488,12 +490,15 @@ def parse_termination(raw: RawTicket) -> TerminationTicket:
     else:
         first, last = _split_name(full_name)
     
-    # If still no email and we have names, generate one
-    if not email and first and last:
+    # Only generate email from names if we don't have an employee ID that needs Okta lookup
+    if not email and first and last and not employee_id_needs_lookup:
         # Normalize Unicode characters to ASCII for email generation
         first_ascii = unidecode(first).replace(" ", "").lower()
         last_ascii = unidecode(last).replace(" ", "").lower()
         email = f"{first_ascii}{last_ascii}@filevine.com"
+    elif employee_id_needs_lookup:
+        log.info(f"Skipping email generation from names - waiting for Okta lookup of employee ID {employee_id_needs_lookup}")
+        out["employee_id"] = employee_id_needs_lookup  # Store for later lookup
 
     # Enhanced manager email extraction
     manager_email = None

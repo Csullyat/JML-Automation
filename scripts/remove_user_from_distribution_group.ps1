@@ -1,4 +1,4 @@
-# Add user to Exchange Online distribution group using certificate authentication
+# Remove user from Exchange Online distribution group using certificate authentication
 param(
     [Parameter(Mandatory=$true)]
     [string]$UserEmail,
@@ -47,31 +47,26 @@ try {
         # This is a Microsoft 365 Group (formerly Office 365 Group)
         Write-Output "Detected Microsoft 365 Group: $GroupName"
         
-        # Wait for user propagation for M365 groups too
-        Write-Output "Waiting 20 seconds for user propagation before M365 group assignment..."
-        Start-Sleep -Seconds 20
-        
-        $maxRetries = 6
+        $maxRetries = 3
         $retryCount = 0
         $success = $false
         
         while ($retryCount -lt $maxRetries -and -not $success) {
             try {
-                # First verify the user exists in Exchange Online for M365 groups too
+                # First verify the user exists in Exchange Online for M365 groups
                 $user = Get-User -Identity $UserEmail -ErrorAction SilentlyContinue
                 if (-not $user) {
                     throw [System.Exception]::new("Couldn't find object `"$UserEmail`". Please make sure that it was spelled correctly or specify a different object.")
                 }
                 
-                Add-UnifiedGroupLinks -Identity $GroupName -LinkType Members -Links $UserEmail -Confirm:$false -ErrorAction Stop
-                Write-Output "SUCCESS: Added $UserEmail to Microsoft 365 Group $GroupName"
+                Remove-UnifiedGroupLinks -Identity $GroupName -LinkType Members -Links $UserEmail -Confirm:$false -ErrorAction Stop
+                Write-Output "SUCCESS: Removed $UserEmail from Microsoft 365 Group $GroupName"
                 $success = $true
             } catch {
                 if ($_.Exception.Message -like "*Couldn't find object*" -or $_.Exception.Message -like "*not found*") {
                     $retryCount++
                     if ($retryCount -lt $maxRetries) {
-                        # Exponential backoff: 20s, 30s, 45s, 60s, 90s, 120s
-                        $waitTime = [math]::Min(120, 20 * [math]::Pow(1.5, $retryCount - 1))
+                        $waitTime = 10 * $retryCount
                         Write-Output "User not found for M365 group, retrying in $waitTime seconds... (attempt $retryCount/$maxRetries)"
                         Start-Sleep -Seconds $waitTime
                     } else {
@@ -86,14 +81,10 @@ try {
         # This is a distribution group or mail-enabled security group
         Write-Output "Detected Distribution/Security Group: $GroupName"
         
-        # For distribution groups, try with retry logic for user sync delays
-        $maxRetries = 8
+        # For distribution groups, try with retry logic
+        $maxRetries = 3
         $retryCount = 0
         $success = $false
-        
-        # Initial 20-second wait for user propagation from Okta to Exchange
-        Write-Output "Waiting 20 seconds for user propagation from Okta to Exchange..."
-        Start-Sleep -Seconds 20
         
         while ($retryCount -lt $maxRetries -and -not $success) {
             try {
@@ -103,15 +94,14 @@ try {
                     throw [System.Exception]::new("Couldn't find object `"$UserEmail`". Please make sure that it was spelled correctly or specify a different object.")
                 }
                 
-                Add-DistributionGroupMember -Identity $GroupName -Member $UserEmail -BypassSecurityGroupManagerCheck -Confirm:$false -ErrorAction Stop
-                Write-Output "SUCCESS: Added $UserEmail to Distribution Group $GroupName"
+                Remove-DistributionGroupMember -Identity $GroupName -Member $UserEmail -BypassSecurityGroupManagerCheck -Confirm:$false -ErrorAction Stop
+                Write-Output "SUCCESS: Removed $UserEmail from Distribution Group $GroupName"
                 $success = $true
             } catch {
                 if ($_.Exception.Message -like "*Couldn't find object*") {
                     $retryCount++
                     if ($retryCount -lt $maxRetries) {
-                        # Exponential backoff: 20s, 30s, 45s, 60s, 90s, 120s, 180s, 240s
-                        $waitTime = [math]::Min(240, 20 * [math]::Pow(1.5, $retryCount - 1))
+                        $waitTime = 10 * $retryCount
                         Write-Output "User not found in Exchange, retrying in $waitTime seconds... (attempt $retryCount/$maxRetries)"
                         Start-Sleep -Seconds $waitTime
                     } else {
@@ -125,8 +115,8 @@ try {
     }
     
 } catch {
-    if ($_.Exception.Message -like "*already a member*" -or $_.Exception.Message -like "*already exists*") {
-        Write-Output "SUCCESS: User $UserEmail already in group $GroupName"
+    if ($_.Exception.Message -like "*not a member*" -or $_.Exception.Message -like "*not found in group*") {
+        Write-Output "SUCCESS: User $UserEmail was not a member of group $GroupName (no action needed)"
     } elseif ($_.Exception.Message -like "*sufficient permissions*" -or $_.Exception.Message -like "*manager of the group*") {
         Write-Error "PERMISSIONS: App registration needs to be made a manager of group $GroupName"
     } else {

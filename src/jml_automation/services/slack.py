@@ -81,8 +81,21 @@ class SlackService(BaseService):
             ticket_number = display_number or getattr(ticket, "ticket_id", None) or getattr(ticket, "display_number", None) or "?"
             ticket_id = getattr(ticket, "ticket_id", None) or ticket_number
             user_slug = user_name.lower().replace(" ", "-")
-            incident_id = ticket_id if ticket_id else ticket_number
-            ticket_url = f"https://it.filevine.com/incidents/{incident_id}-{user_slug}-new-user-request"
+            # Try to get the internal incident ID for the correct URL format
+            try:
+                from jml_automation.services.solarwinds import SolarWindsService
+                solarwinds = SolarWindsService.from_config()
+                internal_incident_id = solarwinds.search_by_display_number(str(ticket_id))
+                if internal_incident_id:
+                    ticket_url = f"https://it.filevine.com/incidents/{internal_incident_id}-employee-onboarding-{user_slug}"
+                else:
+                    # Fallback to old format if internal ID not found
+                    incident_id = ticket_id if ticket_id else ticket_number
+                    ticket_url = f"https://it.filevine.com/incidents/{incident_id}-{user_slug}-new-user-request"
+            except Exception as e:
+                # Fallback to old format on any error
+                incident_id = ticket_id if ticket_id else ticket_number
+                ticket_url = f"https://it.filevine.com/incidents/{incident_id}-{user_slug}-new-user-request"
             message = {
                 "channel": self.channel,
                 "text": "New Okta User Created",
@@ -145,17 +158,49 @@ class SlackService(BaseService):
         try:
             # Extract name from email if not provided
             if not user_name:
-                name_part = user_email.split('@')[0].replace('.', ' ').title()
-                # Split camelCase names properly (cristinaromero -> Cristina Romero)
-                import re
-                # Insert space before capital letters that follow lowercase letters
-                name_with_spaces = re.sub(r'([a-z])([A-Z])', r'\1 \2', name_part)
-                user_name = name_with_spaces
+                # Try to get display name from Okta first
+                try:
+                    from jml_automation.services.okta import OktaService
+                    okta_base_url = self.config.get_secret('OKTA_ORG_URL')
+                    okta_token = self.config.get_secret('OKTA_TOKEN')
+                    if okta_base_url and okta_token:
+                        okta_service = OktaService(base_url=okta_base_url, token=okta_token)
+                        user_info = okta_service.find_user_by_email(user_email)
+                        if user_info:
+                            user_name = user_info.get('profile', {}).get('displayName')
+                            # Use display name if available
+                            pass
+                        else:
+                            # Fallback to firstName + lastName if displayName is not available
+                            first_name = user_info.get('profile', {}).get('firstName', '')
+                            last_name = user_info.get('profile', {}).get('lastName', '')
+                            if first_name or last_name:
+                                user_name = f"{first_name} {last_name}".strip()
+                except Exception as e:
+                    # Okta lookup failed, will use email fallback
+                    pass
+                
+                # Fallback to email parsing if Okta lookup failed
+                if not user_name:
+                    import re
+                    name_part = user_email.split('@')[0].replace('.', ' ')
+                    
+                    if ' ' in name_part:
+                        # Already has spaces (like firstname.lastname)
+                        user_name = name_part.title()
+                    else:
+                        # Try camelCase split (e.g., "firstName" -> "First Name")
+                        name_with_camel = re.sub(r'([a-z])([A-Z])', r'\1 \2', name_part)
+                        if ' ' in name_with_camel:
+                            user_name = name_with_camel.title()
+                        else:
+                            # Fallback: just capitalize
+                            user_name = name_part.title()
             
-            # Additional cleanup for user_name if it was provided
-            if user_name and ' ' not in user_name:
+            # Additional cleanup for user_name if it was provided and still needs splitting
+            elif user_name and ' ' not in user_name:
                 import re
-                user_name = re.sub(r'([a-z])([A-Z])', r'\1 \2', user_name)
+                user_name = re.sub(r'([a-z])([A-Z])', r'\1 \2', user_name).title()
             
             # Build status summary
             if overall_success:
@@ -172,7 +217,19 @@ class SlackService(BaseService):
             ticket_url = None
             if ticket_id:
                 user_slug = user_name.lower().replace(" ", "-")
-                ticket_url = f"https://it.filevine.com/incidents/{ticket_id}-{user_slug}-termination"
+                # Try to get the internal incident ID for the correct URL format
+                try:
+                    from jml_automation.services.solarwinds import SolarWindsService
+                    solarwinds = SolarWindsService.from_config()
+                    internal_incident_id = solarwinds.search_by_display_number(str(ticket_id))
+                    if internal_incident_id:
+                        ticket_url = f"https://it.filevine.com/incidents/{internal_incident_id}-employee-termination-{user_slug}"
+                    else:
+                        # Fallback to old format if internal ID not found
+                        ticket_url = f"https://it.filevine.com/incidents/{ticket_id}-{user_slug}-termination"
+                except Exception as e:
+                    # Fallback to old format on any error
+                    ticket_url = f"https://it.filevine.com/incidents/{ticket_id}-{user_slug}-termination"
             
             # Build duration text
             duration_text = f"{duration_seconds:.1f}s" if duration_seconds else "Unknown"

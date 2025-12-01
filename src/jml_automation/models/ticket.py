@@ -44,6 +44,7 @@ class OnboardingTicket(BaseModel):
 	office_location_after: Optional[str] = None
 	laptop_style: Optional[str] = None
 	delivery_time: Optional[str] = None
+	hire_type: Optional[str] = None  # e.g., "Employee", "Contractor"
 
 	# Nested user profile (recommended; parser will populate if present)
 	user: Optional[UserProfile] = None

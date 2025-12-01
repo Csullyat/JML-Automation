@@ -310,19 +310,14 @@ def terminate_run(ticket_id: Optional[str], user_email: Optional[str], manager_e
                 raw_ticket = fetch_ticket(ticket_id)
                 ticket = parse_ticket(raw_ticket)
                 
-                if hasattr(ticket, 'user') and ticket.user:
+                if hasattr(ticket, 'user') and ticket.user and ticket.user.email:
                     user_email = ticket.user.email
                 else:
-                    # Extract email from raw ticket if parsing fails
-                    from jml_automation.parsers.solarwinds_parser import extract_user_email_from_ticket
-                    user_email = extract_user_email_from_ticket(raw_ticket)
+                    # Use enhanced email resolution that handles Okta lookups
+                    user_email = workflow.resolve_user_email_from_ticket(raw_ticket)
                 
-                if hasattr(ticket, 'manager') and ticket.manager:
-                    manager_email = ticket.manager.email
-                else:
-                    # Extract manager email from raw ticket if parsing fails
-                    from jml_automation.parsers.solarwinds_parser import extract_manager_email_from_ticket
-                    manager_email = extract_manager_email_from_ticket(raw_ticket)
+                # Use enhanced manager email resolution that handles Okta lookups
+                manager_email = workflow.resolve_manager_email_from_ticket(raw_ticket)
                 
                 if not user_email:
                     click.echo("ERROR: Could not extract user email from ticket")

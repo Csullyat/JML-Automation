@@ -163,13 +163,22 @@ def run(
             except Exception as e:
                 print(f"DEBUG: Error detecting timezone: {e}, using default")
 
+        # Modify title for contractors
+        title = u.title or ""
+        if ticket.hire_type and ticket.hire_type.strip().lower() == "contractor":
+            if title and not title.lower().endswith("contractor"):
+                title = f"{title} - Contractor"
+            elif not title:
+                title = "Contractor"
+            print(f"DEBUG: Modified title for contractor: '{title}'")
+        
         profile = {
             "firstName": u.first_name,
             "lastName":  u.last_name,
             "email":     u.email,
             "login":     u.email,
             "displayName": f"{u.first_name} {u.last_name}",
-            "title":       u.title,
+            "title":       title,
             "department":  u.department,
             "manager":     u.manager_display,  # The "Lastname, Firstname" format
             # Additional mappings
@@ -192,14 +201,10 @@ def run(
         print(f"DEBUG: Created user with ID: {user_id}")
         log.info(f"Created Okta user: {u.email} (id={user_id})")
     else:
-        print(f"DEBUG: User exists with ID: {user_id}, updating...")
-        okta.update_profile(user_id, {k:v for k,v in {
-            "mobilePhone": u.phone_mobile,
-            "department":  u.department,
-            "title":       u.title,
-        }.items() if v})
-        print(f"DEBUG: Updated user {u.email} (id={user_id})")
-        log.info(f"Updated Okta user: {u.email} (id={user_id})")
+        print(f"ERROR: User {u.email} already exists in Okta with ID: {user_id}")
+        print(f"MANUAL ACTION REQUIRED: Please check the user's status in Okta and handle manually")
+        log.error(f"User {u.email} already exists in Okta (ID: {user_id}). Manual intervention required.")
+        raise Exception(f"User {u.email} already exists in Okta. Please handle manually and re-run onboarding.")
 
     # 2) Groups
     cfg = yaml.safe_load((Path("config")/"groups.yaml").read_text())
@@ -248,6 +253,13 @@ def run(
     # 3) Microsoft 365 group assignment
     try:
         from jml_automation.services.microsoft import MicrosoftService
+        import time
+        
+        # Wait for user propagation from Okta to Exchange Online
+        print(f"DEBUG: Waiting 60 seconds for {u.email} to propagate from Okta to Exchange Online...")
+        log.info(f"Waiting 60 seconds for user {u.email} to propagate from Okta to Exchange Online")
+        time.sleep(60)
+        
         print(f"DEBUG: Adding Microsoft 365 groups for user {u.email} in department {u.department}")
         
         ms = MicrosoftService()
@@ -299,6 +311,38 @@ def run(
     except Exception as e:
         log.warning(f"Slack notification failed (non-fatal): {e}")
         print(f"DEBUG: Slack notification failed: {e}")
+
+    # 4) Handle contractor-specific logic
+    if ticket.hire_type and ticket.hire_type.strip().lower() == "contractor":
+        try:
+            print(f"DEBUG: Detected contractor hire type for {u.email}, removing from SSO-Swagbucks Okta group")
+            log.info(f"Processing contractor-specific logic for {u.email}")
+            
+            # Wait a bit for user to propagate in Okta before attempting removal
+            print(f"DEBUG: Waiting 10 seconds for user propagation before SSO-Swagbucks removal...")
+            time.sleep(10)
+            
+            # Find the SSO-Swagbucks group ID in Okta
+            swagbucks_group_id = okta.find_group_id("SSO-Swagbucks")
+            
+            if swagbucks_group_id:
+                print(f"DEBUG: Found SSO-Swagbucks group ID: {swagbucks_group_id}")
+                
+                # Remove user from the group (using list of group IDs)
+                okta.remove_from_groups(user_id, [swagbucks_group_id])
+                print(f"DEBUG: Successfully removed contractor {u.email} from SSO-Swagbucks Okta group")
+                log.info(f"Successfully removed contractor {u.email} from SSO-Swagbucks Okta group")
+            else:
+                print(f"DEBUG: SSO-Swagbucks group not found in Okta")
+                log.warning(f"SSO-Swagbucks group not found in Okta for contractor {u.email}")
+                
+        except Exception as e:
+            print(f"DEBUG: Contractor Okta group removal failed for {u.email}: {e}")
+            log.warning(f"Contractor Okta group removal failed (non-fatal): {e}")
+            # Continue anyway - don't fail onboarding for this
+    else:
+        hire_type_display = ticket.hire_type or "Not specified"
+        print(f"DEBUG: Hire type is '{hire_type_display}', no contractor-specific actions needed")
 
     # TODO: call real adapters (downstream services)
     # if push_domo: DomoService(...).send_metrics(...)

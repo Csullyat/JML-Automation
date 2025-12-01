@@ -104,6 +104,51 @@ class DomoService:
             logger.error(f"Domo API request failed: {e}")
             return None
 
+    def _make_api_request_enhanced(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict[str, Any]:
+        """Make authenticated API request to Domo with enhanced error reporting."""
+        if not self.access_token:
+            self.access_token = self._get_access_token()
+            if not self.access_token:
+                logger.error("No Domo access token available")
+                return {"success": False, "error": "No access token", "status_code": 401}
+
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        url = f"{self.base_url}{endpoint}"
+        
+        try:
+            if method.upper() == "GET":
+                response = requests.get(url, headers=headers)
+            elif method.upper() == "DELETE":
+                response = requests.delete(url, headers=headers)
+            elif method.upper() == "PUT":
+                response = requests.put(url, headers=headers, json=data)
+            else:
+                return {"success": False, "error": f"Unsupported HTTP method: {method}", "status_code": 400}
+                
+            # Check for success
+            if response.status_code in [200, 204]:
+                return {
+                    "success": True, 
+                    "data": response.json() if response.content else {},
+                    "status_code": response.status_code
+                }
+            else:
+                # Return detailed error information
+                return {
+                    "success": False,
+                    "error": response.text,
+                    "status_code": response.status_code,
+                    "reason": response.reason
+                }
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Domo API request failed: {e}")
+            return {"success": False, "error": str(e), "status_code": getattr(e.response, 'status_code', 0) if hasattr(e, 'response') else 0}
+
     def find_user_by_email_direct(self, email: str) -> Optional[Dict]:
         """Try to find user by using email as direct identifier."""
         try:
@@ -261,20 +306,130 @@ class DomoService:
                 logger.error(f"No user ID found for {user_email}")
                 return False
                 
-            # Delete the user
+            # Delete the user with enhanced error handling
             logger.info(f"Deleting Domo user: {user_email} (ID: {user_id})")
-            delete_response = self._make_api_request("DELETE", f"/users/{user_id}")
+            delete_response = self._make_api_request_enhanced("DELETE", f"/users/{user_id}")
             
-            if delete_response is not None:
+            if delete_response.get("success"):
                 logger.info(f"Successfully deleted Domo user: {user_email}")
                 return True
             else:
-                logger.error(f"Failed to delete Domo user: {user_email}")
-                return False
+                error_code = delete_response.get("status_code")
+                error_msg = delete_response.get("error", "Unknown error")
+                
+                if error_code == 409:
+                    logger.warning(f"Domo user {user_email} deletion conflict (409): User has active content or dependencies")
+                    logger.info("Dependencies should have been handled automatically - this may indicate dashboards or other content")
+                    # Still return False so caller can handle appropriately
+                    return False
+                else:
+                    logger.error(f"Failed to delete Domo user {user_email}: HTTP {error_code} - {error_msg}")
+                    return False
                 
         except Exception as e:
             logger.error(f"Error deleting Domo user {user_email}: {e}")
             return False
+
+    def get_user_datasets(self, user_email: str) -> list:
+        """Get all datasets owned by a specific user."""
+        try:
+            user = self.find_user_by_email(user_email)
+            if not user:
+                return []
+            
+            user_id = user.get("id")
+            datasets_response = self._make_api_request("GET", f"/datasets?ownerId={user_id}")
+            
+            if datasets_response and isinstance(datasets_response, list):
+                logger.info(f"Found {len(datasets_response)} datasets owned by {user_email}")
+                return datasets_response
+            elif datasets_response and isinstance(datasets_response, dict):
+                datasets = datasets_response.get("data", datasets_response.get("datasets", []))
+                logger.info(f"Found {len(datasets)} datasets owned by {user_email}")
+                return datasets
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"Error getting datasets for {user_email}: {e}")
+            return []
+
+    def transfer_dataset_ownership(self, dataset_id: str, new_owner_email: str) -> bool:
+        """Transfer ownership of a dataset to a new user."""
+        try:
+            # Find new owner
+            new_owner = self.find_user_by_email(new_owner_email)
+            if not new_owner:
+                logger.error(f"New owner {new_owner_email} not found in Domo")
+                return False
+            
+            new_owner_id = new_owner.get("id")
+            
+            # Transfer ownership
+            transfer_data = {
+                "ownerId": new_owner_id
+            }
+            
+            logger.info(f"Transferring dataset {dataset_id} to {new_owner_email}")
+            response = self._make_api_request("PUT", f"/datasets/{dataset_id}", transfer_data)
+            
+            if response:
+                logger.info(f"Successfully transferred dataset {dataset_id} to {new_owner_email}")
+                return True
+            else:
+                logger.error(f"Failed to transfer dataset {dataset_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error transferring dataset {dataset_id} to {new_owner_email}: {e}")
+            return False
+
+    def handle_user_dependencies(self, user_email: str, manager_email: str) -> Dict[str, Any]:
+        """Handle user dependencies before deletion (datasets, dashboards, etc.)."""
+        actions_taken = []
+        errors = []
+        
+        try:
+            logger.info(f"Checking and handling dependencies for {user_email}")
+            
+            # Get user's datasets
+            datasets = self.get_user_datasets(user_email)
+            
+            if datasets:
+                logger.info(f"Found {len(datasets)} datasets to transfer from {user_email} to {manager_email}")
+                
+                # Transfer each dataset to manager
+                for dataset in datasets:
+                    dataset_id = dataset.get("id")
+                    dataset_name = dataset.get("name", "Unknown Dataset")
+                    
+                    if dataset_id:
+                        success = self.transfer_dataset_ownership(dataset_id, manager_email)
+                        if success:
+                            actions_taken.append(f"Transferred dataset '{dataset_name}' to {manager_email}")
+                        else:
+                            errors.append(f"Failed to transfer dataset '{dataset_name}'")
+                    else:
+                        errors.append(f"Dataset '{dataset_name}' has no ID - cannot transfer")
+            else:
+                logger.info(f"No datasets found for {user_email}")
+                actions_taken.append("No datasets to transfer")
+            
+            return {
+                'success': len(errors) == 0,
+                'actions': actions_taken,
+                'errors': errors,
+                'datasets_transferred': len(datasets) - len(errors)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error handling dependencies for {user_email}: {e}")
+            return {
+                'success': False,
+                'actions': actions_taken,
+                'errors': [f"Failed to handle dependencies: {e}"],
+                'datasets_transferred': 0
+            }
 
     def verify_user_deleted(self, user_email: str) -> bool:
         """Verify that user has been deleted from Domo."""
@@ -377,7 +532,24 @@ class DomoService:
             
             actions_taken.append(f"Found user in Domo: {user_email}")
             
-            # Step 2: Delete user from Domo
+            # Step 2: Handle dependencies (datasets, dashboards) before deletion
+            if manager_email:
+                logger.info(f"Handling user dependencies before deletion - transferring to {manager_email}")
+                dependency_result = self.handle_user_dependencies(user_email, manager_email)
+                
+                if dependency_result['success']:
+                    actions_taken.extend(dependency_result['actions'])
+                    if dependency_result['datasets_transferred'] > 0:
+                        logger.info(f"Successfully transferred {dependency_result['datasets_transferred']} datasets to {manager_email}")
+                else:
+                    # Don't fail entirely, but record warnings
+                    warnings.extend(dependency_result['errors'])
+                    logger.warning("Some dependencies could not be transferred, proceeding with deletion attempt")
+            else:
+                logger.warning("No manager email provided - skipping dependency transfer")
+                warnings.append("No manager email - dependencies not transferred")
+            
+            # Step 3: Delete user from Domo
             logger.info(f"Deleting Domo user: {user_email}")
             deletion_success = self.delete_user(user_email)
             
@@ -399,7 +571,51 @@ class DomoService:
                     'warnings': warnings
                 }
             else:
+                # Deletion failed - check if we can handle dependencies and retry
+                logger.warning(f"Initial deletion failed for {user_email}, checking for remaining dependencies")
+                
+                if manager_email:
+                    # Try one more time to handle any remaining dependencies
+                    logger.info("Attempting additional dependency cleanup...")
+                    retry_dependency_result = self.handle_user_dependencies(user_email, manager_email)
+                    
+                    if retry_dependency_result['success'] or retry_dependency_result['datasets_transferred'] > 0:
+                        # Some dependencies were found and transferred, try deletion again
+                        logger.info("Additional dependencies handled, retrying deletion...")
+                        retry_deletion = self.delete_user(user_email)
+                        
+                        if retry_deletion:
+                            actions_taken.extend(retry_dependency_result['actions'])
+                            actions_taken.append(f"Successfully deleted Domo user after dependency cleanup: {user_email}")
+                            
+                            # Verify deletion
+                            verification_result = self.verify_user_deleted(user_email)
+                            if verification_result:
+                                actions_taken.append("Verified user deletion from Domo")
+                            else:
+                                warnings.append("User deletion not verified - may still exist in Domo")
+                            
+                            return {
+                                'success': True,
+                                'actions': actions_taken,
+                                'errors': errors,
+                                'warnings': warnings
+                            }
+                
+                # If we get here, deletion still failed after dependency handling
                 error_msg = f"Failed to delete Domo user: {user_email}"
+                
+                # Try to get more specific error information
+                try:
+                    user_check = self.find_user_by_email(user_email)
+                    if user_check:
+                        error_msg += f" - User still exists (ID: {user_check.get('id')})"
+                        error_msg += " - May have dashboards, alerts, or other content requiring manual cleanup"
+                        actions_taken.append("Dependencies transferred but user still cannot be deleted")
+                        warnings.append("MANUAL ACTION REQUIRED: Check for dashboards, alerts, or other Domo content")
+                except Exception:
+                    pass
+                
                 errors.append(error_msg)
                 logger.error(error_msg)
                 return {
