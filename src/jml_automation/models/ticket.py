@@ -69,4 +69,17 @@ class TerminationTicket(BaseModel):
 	user: Optional[UserProfile] = None
 
 
-__all__ = ["UserProfile", "OnboardingTicket", "TerminationTicket"]
+class PartnerTicket(BaseModel):
+	"""Partner onboarding ticket with partner-specific information."""
+	model_config = ConfigDict(extra="ignore")
+
+	ticket_id: str
+	is_new_partner_org: Optional[bool] = None
+	needs_knowbe4: Optional[bool] = None
+	partner_company: Optional[str] = None
+	partner_email: Optional[str] = None
+	partner_name: Optional[str] = None
+	filevine_email: Optional[str] = None
+
+
+__all__ = ["UserProfile", "OnboardingTicket", "TerminationTicket", "PartnerTicket"]

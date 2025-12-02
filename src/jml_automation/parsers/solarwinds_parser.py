@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, date
 from typing import Literal, Optional, TypedDict, Union, Dict, List
 from unidecode import unidecode
-from jml_automation.models.ticket import UserProfile, OnboardingTicket, TerminationTicket
+from jml_automation.models.ticket import UserProfile, OnboardingTicket, TerminationTicket, PartnerTicket
 from jml_automation.services.solarwinds import SolarWindsService, SWSDClientError
 
 log = logging.getLogger(__name__)
@@ -254,7 +254,7 @@ def fetch_ticket(ticket_id: str) -> RawTicket:
     return svc.fetch_ticket(ticket_id)  # type: ignore[return-value]
 
 
-def detect_type(raw: RawTicket) -> Literal["onboarding", "termination", "unknown"]:
+def detect_type(raw: RawTicket) -> Literal["onboarding", "termination", "partner", "unknown"]:
     cf = (raw.get("custom_fields") or {})
 
     onboarding_keys = {
@@ -269,16 +269,33 @@ def detect_type(raw: RawTicket) -> Literal["onboarding", "termination", "unknown
         "Employee Department",
         "Term Type",
     }
+    partner_keys = {
+        "Partner Company",
+        "Partner Email Address",
+        "Partner Name (First Last)",
+        "New Filevine Email Address",
+    }
 
     has_onboarding = any(k in cf for k in onboarding_keys)
     has_termination = any(k in cf for k in termination_keys)
+    has_partner = any(k in cf for k in partner_keys)
+
+    # Check for partner ticket by catalog item or assignment
+    subject = (raw.get("subject") or "").lower()
+    catalog_item = cf.get("catalog_item", "").lower()
+    assigned_to = cf.get("assigned_to", "").lower()
+    
+    if (has_partner or 
+        "new partner request" in catalog_item or
+        "new partner" in subject or
+        "new partners" in assigned_to):
+        return "partner"
 
     if has_onboarding and not has_termination:
         return "onboarding"
     if has_termination and not has_onboarding:
         return "termination"
 
-    subject = (raw.get("subject") or "").lower()
     if "onboarding" in subject or "new employee" in subject:
         return "onboarding"
     if "termination" in subject or "offboarding" in subject:
@@ -538,12 +555,78 @@ def parse_termination(raw: RawTicket) -> TerminationTicket:
     return _safe_build(TerminationTicket, data)
 
 
-def parse_ticket(raw: RawTicket) -> Union[OnboardingTicket, TerminationTicket]:
+def parse_partner(raw: RawTicket) -> PartnerTicket:
+    """Parse a partner request ticket."""
+    cf = (raw.get("custom_fields") or {})
+    
+    ticket_id = str(raw.get("id", ""))
+    
+    # Parse partner-specific fields from both custom_fields and custom_fields_values
+    partner_data = {}
+    
+    # Check custom_fields_values first (newer format)
+    custom_fields_values = raw.get("custom_fields_values", [])
+    for f in custom_fields_values:
+        label = f.get("name", "").strip()
+        val = f.get("value", "").strip()
+        
+        if not val:
+            continue
+            
+        if label == "Is this a new partner org?":
+            partner_data["is_new_partner_org"] = _to_bool(val)
+        elif label == "If yes, do they need KnowBe4 access?":
+            partner_data["needs_knowbe4"] = _to_bool(val)
+        elif label == "Partner Company":
+            partner_data["partner_company"] = val
+        elif label == "Partner Email Address":
+            partner_data["partner_email"] = _norm_email(val)
+        elif label == "Partner Name (First Last)":
+            partner_data["partner_name"] = val
+        elif label == "New Filevine Email Address":
+            partner_data["filevine_email"] = _norm_email(val)
+    
+    # Fallback to direct custom_fields dict
+    for label, val in cf.items():
+        if not val:
+            continue
+            
+        if label == "Is this a new partner org?" and "is_new_partner_org" not in partner_data:
+            partner_data["is_new_partner_org"] = _to_bool(val)
+        elif label == "If yes, do they need KnowBe4 access?" and "needs_knowbe4" not in partner_data:
+            partner_data["needs_knowbe4"] = _to_bool(val)
+        elif label == "Partner Company" and "partner_company" not in partner_data:
+            partner_data["partner_company"] = str(val).strip()
+        elif label == "Partner Email Address" and "partner_email" not in partner_data:
+            partner_data["partner_email"] = _norm_email(str(val))
+        elif label == "Partner Name (First Last)" and "partner_name" not in partner_data:
+            partner_data["partner_name"] = str(val).strip()
+        elif label == "New Filevine Email Address" and "filevine_email" not in partner_data:
+            partner_data["filevine_email"] = _norm_email(str(val))
+    
+    # Build partner ticket data
+    ticket_data = {
+        "ticket_id": ticket_id,
+        "is_new_partner_org": partner_data.get("is_new_partner_org"),
+        "needs_knowbe4": partner_data.get("needs_knowbe4"),
+        "partner_company": partner_data.get("partner_company"),
+        "partner_email": partner_data.get("partner_email"),
+        "partner_name": partner_data.get("partner_name"),
+        "filevine_email": partner_data.get("filevine_email"),
+    }
+    
+    log.info(f"Parsed partner ticket {ticket_id}: {partner_data.get('partner_company')} - {partner_data.get('partner_name')}")
+    return _safe_build(PartnerTicket, ticket_data)
+
+
+def parse_ticket(raw: RawTicket) -> Union[OnboardingTicket, TerminationTicket, PartnerTicket]:
     kind = detect_type(raw)
     if kind == "onboarding":
         return parse_onboarding(raw)
     if kind == "termination":
         return parse_termination(raw)
+    if kind == "partner":
+        return parse_partner(raw)
     raise ValueError(f"Unknown ticket type for id={raw.get('id')}")
 
 

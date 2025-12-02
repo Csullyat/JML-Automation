@@ -206,82 +206,97 @@ def run(
         log.error(f"User {u.email} already exists in Okta (ID: {user_id}). Manual intervention required.")
         raise Exception(f"User {u.email} already exists in Okta. Please handle manually and re-run onboarding.")
 
-    # 2) Groups
-    cfg = yaml.safe_load((Path("config")/"groups.yaml").read_text())
-    group_names = set(cfg.get("baseline", []))
-
-    dept_map = (cfg.get("dept") or {})
+    # 2) Groups - Check if partner user and skip baseline groups
+    # Check if this user was just created as a partner user
+    is_partner_user = okta.is_partner_user(user_id)
     
-    # Map department names to config keys
-    department_key = u.department
-    if u.department == "AE - Account Executives":
-        department_key = "Sales"
-    elif u.department == "SDR - Sales Development Reps":
-        department_key = "Sales"
+    if is_partner_user:
+        print(f"DEBUG: Partner user {u.email} detected - skipping baseline group assignment")
+        log.info(f"Partner user {u.email} detected - groups managed by partner assignment rules only")
+    else:
+        # Standard employee group assignment
+        cfg = yaml.safe_load((Path("config")/"groups.yaml").read_text())
+        group_names = set(cfg.get("baseline", []))
+
+        dept_map = (cfg.get("dept") or {})
+        
+        # Map department names to config keys
+        department_key = u.department
+        if u.department == "AE - Account Executives":
+            department_key = "Sales"
+        elif u.department == "SDR - Sales Development Reps":
+            department_key = "Sales"
+        
+        if department_key in dept_map:
+            group_names.update(dept_map[department_key])
+
+        # Zoom license group
+        zoom = cfg.get("zoom", {})
+        if (u.title or "").strip().lower().startswith("account executive"):
+            group_names.add(zoom.get("ae", zoom.get("default")))
+        else:
+            if zoom.get("default"): group_names.add(zoom["default"])
+
+        # Resolve to IDs and assign
+        print(f"DEBUG: Resolving group names: {sorted(group_names)}")
+        gids = []
+        for name in sorted(n for n in group_names if n):
+            gid = okta.find_group_id(name)
+            if gid:
+                gids.append(gid)
+                print(f"DEBUG: Resolved group '{name}' to id {gid}")
+                log.info(f"Resolved group '{name}' to id {gid}")
+            else:
+                print(f"DEBUG: Group '{name}' not found in Okta")
+                log.warning(f"Group '{name}' not found in Okta")
+        if gids:
+            print(f"DEBUG: Adding user {u.email} (id={user_id}) to groups: {gids}")
+            okta.add_to_groups(user_id, gids)
+            print(f"DEBUG: Added user {u.email} (id={user_id}) to groups: {gids}")
+            log.info(f"Added user {u.email} (id={user_id}) to groups: {gids}")
+        else:
+            print(f"DEBUG: No valid groups to add for user {u.email} (id={user_id})")
+            log.warning(f"No valid groups to add for user {u.email} (id={user_id})")
+
+    # 3) Microsoft 365 group assignment - Skip for partner users
+    # Check if this is a partner user (should skip standard provisioning)
+    is_partner = okta.is_partner_user(user_id)
     
-    if department_key in dept_map:
-        group_names.update(dept_map[department_key])
-
-    # Zoom license group
-    zoom = cfg.get("zoom", {})
-    if (u.title or "").strip().lower().startswith("account executive"):
-        group_names.add(zoom.get("ae", zoom.get("default")))
+    if is_partner:
+        print(f"DEBUG: Detected partner user {u.email}, skipping standard Microsoft 365/Google provisioning")
+        log.info(f"Skipping standard provisioning for partner user {u.email} - access limited to partner groups only")
     else:
-        if zoom.get("default"): group_names.add(zoom["default"])
-
-    # Resolve to IDs and assign
-    print(f"DEBUG: Resolving group names: {sorted(group_names)}")
-    gids = []
-    for name in sorted(n for n in group_names if n):
-        gid = okta.find_group_id(name)
-        if gid:
-            gids.append(gid)
-            print(f"DEBUG: Resolved group '{name}' to id {gid}")
-            log.info(f"Resolved group '{name}' to id {gid}")
-        else:
-            print(f"DEBUG: Group '{name}' not found in Okta")
-            log.warning(f"Group '{name}' not found in Okta")
-    if gids:
-        print(f"DEBUG: Adding user {u.email} (id={user_id}) to groups: {gids}")
-        okta.add_to_groups(user_id, gids)
-        print(f"DEBUG: Added user {u.email} (id={user_id}) to groups: {gids}")
-        log.info(f"Added user {u.email} (id={user_id}) to groups: {gids}")
-    else:
-        print(f"DEBUG: No valid groups to add for user {u.email} (id={user_id})")
-        log.warning(f"No valid groups to add for user {u.email} (id={user_id})")
-
-    # 3) Microsoft 365 group assignment
-    try:
-        from jml_automation.services.microsoft import MicrosoftService
-        import time
-        
-        # Wait for user propagation from Okta to Exchange Online
-        print(f"DEBUG: Waiting 60 seconds for {u.email} to propagate from Okta to Exchange Online...")
-        log.info(f"Waiting 60 seconds for user {u.email} to propagate from Okta to Exchange Online")
-        time.sleep(60)
-        
-        print(f"DEBUG: Adding Microsoft 365 groups for user {u.email} in department {u.department}")
-        
-        ms = MicrosoftService()
-        m365_results = ms.add_user_to_groups_by_department(u.email, u.department or "")
-        
-        if m365_results['success']:
-            groups_added = m365_results['groups_added']
-            print(f"DEBUG: Successfully added {u.email} to Microsoft 365 groups: {groups_added}")
-            log.info(f"Added user {u.email} to Microsoft 365 groups: {groups_added}")
-        else:
-            groups_failed = m365_results['groups_failed']
-            errors = m365_results['errors']
-            print(f"DEBUG: Microsoft 365 group assignment failed for {u.email}: {errors}")
-            log.warning(f"Microsoft 365 group assignment failed for {u.email}: {groups_failed}")
-            # Don't fail the entire onboarding process for M365 group issues
-            for error in errors:
-                log.warning(f"M365 group error: {error}")
-                
-    except Exception as e:
-        print(f"DEBUG: Microsoft 365 group assignment failed for {u.email}: {e}")
-        log.warning(f"Microsoft 365 group assignment failed (non-fatal): {e}")
-        # Continue with onboarding even if M365 groups fail
+        try:
+            from jml_automation.services.microsoft import MicrosoftService
+            import time
+            
+            # Wait for user propagation from Okta to Exchange Online
+            print(f"DEBUG: Waiting 60 seconds for {u.email} to propagate from Okta to Exchange Online...")
+            log.info(f"Waiting 60 seconds for user {u.email} to propagate from Okta to Exchange Online")
+            time.sleep(60)
+            
+            print(f"DEBUG: Adding Microsoft 365 groups for user {u.email} in department {u.department}")
+            
+            ms = MicrosoftService()
+            m365_results = ms.add_user_to_groups_by_department(u.email, u.department or "")
+            
+            if m365_results['success']:
+                groups_added = m365_results['groups_added']
+                print(f"DEBUG: Successfully added {u.email} to Microsoft 365 groups: {groups_added}")
+                log.info(f"Added user {u.email} to Microsoft 365 groups: {groups_added}")
+            else:
+                groups_failed = m365_results['groups_failed']
+                errors = m365_results['errors']
+                print(f"DEBUG: Microsoft 365 group assignment failed for {u.email}: {errors}")
+                log.warning(f"Microsoft 365 group assignment failed for {u.email}: {groups_failed}")
+                # Don't fail the entire onboarding process for M365 group issues
+                for error in errors:
+                    log.warning(f"M365 group error: {error}")
+                    
+        except Exception as e:
+            print(f"DEBUG: Microsoft 365 group assignment failed for {u.email}: {e}")
+            log.warning(f"Microsoft 365 group assignment failed (non-fatal): {e}")
+            # Continue with onboarding even if M365 groups fail
 
     # Update SolarWinds ticket state and add comment (direct API style)
     try:

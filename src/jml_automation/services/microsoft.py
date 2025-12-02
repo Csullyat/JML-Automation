@@ -4,6 +4,7 @@ import logging
 import requests
 import json
 import time
+import tempfile
 from typing import Dict, Optional, List, Any
 from datetime import datetime
 
@@ -26,6 +27,21 @@ class MicrosoftService:
         
         if not self.credentials.get('client_id'):
             raise Exception("Microsoft Graph credentials not available")
+    
+    def _get_cert_thumbprint(self) -> str:
+        """Get Exchange certificate thumbprint with consistent method."""
+        # Try the primary method first
+        thumbprint = self.config.get_exchange_certificate_thumbprint()
+        if thumbprint:
+            return thumbprint
+        
+        # Fallback to exchange credentials method
+        exchange_creds = self.config.get_exchange_credentials()
+        thumbprint = exchange_creds.get('cert_thumbprint', '')
+        if thumbprint:
+            return thumbprint
+        
+        raise Exception("Exchange certificate thumbprint not available from any source")
     
     def get_mailbox_status(self, user_email: str) -> Optional[str]:
         """Return the mailbox type (e.g., 'UserMailbox', 'SharedMailbox') for the given user."""
@@ -916,6 +932,260 @@ try {{
             results['errors'].append(error_msg)
         
         return results
+
+    def create_shared_mailbox(self, display_name: str, email_address: str, alias: str = None) -> Dict[str, Any]:
+        """
+        Create a shared mailbox in Exchange Online.
+        
+        Args:
+            display_name: Display name for the shared mailbox
+            email_address: Email address for the shared mailbox (e.g., john.hamster@filevine.com)
+            alias: Alias for the mailbox (defaults to username part of email)
+            
+        Returns:
+            Dict with success status and details
+        """
+        try:
+            if not alias:
+                alias = email_address.split('@')[0]
+            
+            # Get credentials and certificate info
+            app_id = self.credentials['client_id']
+            organization = 'filevine.com'
+            cert_thumbprint = self._get_cert_thumbprint()
+            
+            logger.info(f"Creating shared mailbox: {email_address} ({display_name})")
+            
+            # PowerShell script to create shared mailbox
+            ps_script = f'''
+try {{
+    Write-Host "Importing Exchange Online Management module..."
+    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
+    
+    Write-Host "Connecting to Exchange Online..."
+    Connect-ExchangeOnline -AppId '{app_id}' -Organization '{organization}' -CertificateThumbprint '{cert_thumbprint}' -ShowBanner:$false
+    
+    Write-Host "Creating shared mailbox: {email_address}"
+    $mailbox = New-Mailbox -Shared -Name "{display_name}" -DisplayName "{display_name}" -PrimarySmtpAddress "{email_address}" -Alias "{alias}"
+    
+    if ($mailbox) {{
+        Write-Host "SUCCESS: Shared mailbox created successfully"
+        Write-Host "Identity: $($mailbox.Identity)"
+        Write-Host "PrimarySmtpAddress: $($mailbox.PrimarySmtpAddress)"
+        Write-Host "RecipientTypeDetails: $($mailbox.RecipientTypeDetails)"
+    }} else {{
+        Write-Host "ERROR: Failed to create shared mailbox"
+    }}
+    
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    exit 0
+}} catch {{
+    Write-Host "ERROR: $($_.Exception.Message)"
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    exit 1
+}}
+'''
+            
+            # Execute PowerShell script with secure temp file handling
+            import subprocess
+            import os
+            
+            script_fd, script_path = tempfile.mkstemp(suffix=".ps1", prefix="jml_create_mailbox_")
+            
+            try:
+                # Write script to temp file
+                with os.fdopen(script_fd, 'w', encoding='utf-8') as f:
+                    f.write(ps_script)
+                
+                cmd = [
+                    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", script_path
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                
+            finally:
+                # Clean up temp file with proper error handling
+                try:
+                    os.remove(script_path)
+                except (FileNotFoundError, PermissionError, OSError) as e:
+                    logger.warning(f"Could not remove temp file {script_path}: {e}")
+            
+            if result.returncode == 0:
+                logger.info(f"Successfully created shared mailbox: {email_address}")
+                return {
+                    "success": True,
+                    "email": email_address,
+                    "display_name": display_name,
+                    "alias": alias,
+                    "output": result.stdout
+                }
+            else:
+                error_msg = f"Failed to create shared mailbox {email_address}: {result.stderr}"
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg, "output": result.stderr}
+                
+        except Exception as e:
+            error_msg = f"Error creating shared mailbox {email_address}: {e}"
+            logger.error(error_msg)
+            return {"success": False, "error": error_msg}
+
+    def setup_email_forwarding(self, mailbox_email: str, forward_to_email: str) -> Dict[str, Any]:
+        """
+        Set up email forwarding for a mailbox to forward all emails to an external address.
+        
+        Args:
+            mailbox_email: The mailbox to set up forwarding for (e.g., johnhamster@filevine.com)
+            forward_to_email: External email address to forward to (e.g., john@hamsterwheel.com)
+            
+        Returns:
+            Dict with success status and details
+        """
+        try:
+            # Get credentials and certificate info
+            app_id = self.credentials['client_id']
+            organization = 'filevine.com'
+            cert_thumbprint = self._get_cert_thumbprint()
+            
+            logger.info(f"Setting up email forwarding: {mailbox_email} -> {forward_to_email}")
+            
+            # PowerShell script to set up email forwarding
+            ps_script = f'''
+try {{
+    Write-Host "Importing Exchange Online Management module..."
+    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
+    
+    Write-Host "Connecting to Exchange Online..."
+    Connect-ExchangeOnline -AppId '{app_id}' -Organization '{organization}' -CertificateThumbprint '{cert_thumbprint}' -ShowBanner:$false
+    
+    Write-Host "Setting up email forwarding for: {mailbox_email}"
+    Set-Mailbox -Identity "{mailbox_email}" -ForwardingSmtpAddress "{forward_to_email}" -DeliverToMailboxAndForward $false
+    
+    # Verify forwarding was set up (Exchange prefixes external addresses with "smtp:")
+    $mailbox = Get-Mailbox -Identity "{mailbox_email}"
+    $expectedSmtpAddress = "smtp:{forward_to_email}"
+    if ($mailbox.ForwardingSmtpAddress -eq $expectedSmtpAddress -or $mailbox.ForwardingSmtpAddress -eq "{forward_to_email}") {{
+        Write-Host "SUCCESS: Email forwarding configured successfully"
+        Write-Host "Mailbox: {mailbox_email}"
+        Write-Host "Forwarding to: {forward_to_email}"
+        Write-Host "Deliver to mailbox and forward: $($mailbox.DeliverToMailboxAndForward)"
+    }} else {{
+        Write-Host "ERROR: Email forwarding configuration failed"
+        Write-Host "Expected: {forward_to_email} (or smtp:{forward_to_email})"
+        Write-Host "Actual ForwardingSmtpAddress: $($mailbox.ForwardingSmtpAddress)"
+        Write-Host "Actual ForwardingAddress: $($mailbox.ForwardingAddress)"
+    }}
+    
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    exit 0
+}} catch {{
+    Write-Host "ERROR: $($_.Exception.Message)"
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    exit 1
+}}
+'''
+            
+            # Execute PowerShell script with secure temp file handling
+            import subprocess
+            import os
+            
+            script_fd, script_path = tempfile.mkstemp(suffix=".ps1", prefix="jml_setup_forwarding_")
+            
+            try:
+                # Write script to temp file
+                with os.fdopen(script_fd, 'w', encoding='utf-8') as f:
+                    f.write(ps_script)
+                
+                cmd = [
+                    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", script_path
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                
+            finally:
+                # Clean up temp file with proper error handling
+                try:
+                    os.remove(script_path)
+                except (FileNotFoundError, PermissionError, OSError) as e:
+                    logger.warning(f"Could not remove temp file {script_path}: {e}")
+            
+            if result.returncode == 0:
+                logger.info(f"Successfully set up email forwarding: {mailbox_email} -> {forward_to_email}")
+                return {
+                    "success": True,
+                    "mailbox": mailbox_email,
+                    "forward_to": forward_to_email,
+                    "output": result.stdout
+                }
+            else:
+                error_msg = f"Failed to set up email forwarding {mailbox_email} -> {forward_to_email}: {result.stderr}"
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg, "output": result.stderr}
+                
+        except Exception as e:
+            error_msg = f"Error setting up email forwarding {mailbox_email} -> {forward_to_email}: {e}"
+            logger.error(error_msg)
+            return {"success": False, "error": error_msg}
+
+    def create_partner_mailbox_with_forwarding(self, partner_name: str, filevine_email: str, partner_email: str) -> Dict[str, Any]:
+        """
+        Create a shared mailbox for a partner and set up email forwarding.
+        This is a convenience method that combines shared mailbox creation and forwarding setup.
+        
+        Args:
+            partner_name: Partner's full name for display name
+            filevine_email: Filevine email address (e.g., johnhamster@filevine.com)
+            partner_email: Partner's external email for forwarding (e.g., john@hamsterwheel.com)
+            
+        Returns:
+            Dict with success status and details of both operations
+        """
+        try:
+            # Extract alias from filevine email
+            alias = filevine_email.split('@')[0]
+            
+            logger.info(f"Creating partner mailbox with forwarding: {partner_name} ({filevine_email} -> {partner_email})")
+            
+            # Step 1: Create shared mailbox
+            mailbox_result = self.create_shared_mailbox(partner_name, filevine_email, alias)
+            
+            if not mailbox_result["success"]:
+                return {
+                    "success": False,
+                    "error": f"Failed to create shared mailbox: {mailbox_result.get('error')}",
+                    "mailbox_result": mailbox_result
+                }
+            
+            # Step 2: Set up email forwarding
+            forwarding_result = self.setup_email_forwarding(filevine_email, partner_email)
+            
+            if not forwarding_result["success"]:
+                return {
+                    "success": False,
+                    "error": f"Shared mailbox created but forwarding failed: {forwarding_result.get('error')}",
+                    "mailbox_result": mailbox_result,
+                    "forwarding_result": forwarding_result
+                }
+            
+            logger.info(f"Successfully created partner mailbox with forwarding: {filevine_email}")
+            return {
+                "success": True,
+                "partner_name": partner_name,
+                "filevine_email": filevine_email,
+                "partner_email": partner_email,
+                "mailbox_result": mailbox_result,
+                "forwarding_result": forwarding_result
+            }
+            
+        except Exception as e:
+            error_msg = f"Error creating partner mailbox with forwarding: {e}"
+            logger.error(error_msg)
+            return {"success": False, "error": error_msg}
 
 # Test function
 def test_microsoft_service():

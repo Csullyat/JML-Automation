@@ -27,6 +27,11 @@ def terminate():
     """Employee termination automation commands."""
     pass
 
+@cli.group(help="Partner onboarding workflows")
+def partner():
+    """Partner onboarding automation commands."""
+    pass
+
 # ========== ONBOARDING COMMANDS ==========
 
 @onboard.command("run")
@@ -604,6 +609,39 @@ def terminate_ticket(ticket_id: str, dry_run: bool, confirm: bool):
         click.echo(f"ERROR: Fatal error in {mode}: {e}")
         logger.error(f"Single ticket {mode} error: {e}")
         return 1
+
+
+# ========== PARTNER ONBOARDING COMMANDS ==========
+
+@partner.command("run")
+@click.option("--ticket-id", required=True, help="SolarWinds partner ticket ID")
+@click.option("--dry-run/--no-dry-run", default=True, help="Dry run mode (default: True)")
+def partner_run(ticket_id, dry_run):
+    """Run partner onboarding for a ticket."""
+    
+    click.echo(f"Running partner onboarding for ticket {ticket_id} (dry_run={dry_run})")
+    
+    try:
+        from jml_automation.workflows.partner_onboarding import run
+        
+        result = run(
+            ticket_id=ticket_id,
+            ticket_raw=None,
+            dry_run=dry_run
+        )
+        
+        if result == 0:
+            click.echo(f"SUCCESS: Partner onboarding completed successfully for ticket {ticket_id}")
+            return 0
+        else:
+            click.echo(f"ERROR: Partner onboarding failed for ticket {ticket_id} with code {result}")
+            return result
+            
+    except Exception as e:
+        click.echo(f"ERROR: Fatal error in partner onboarding for ticket {ticket_id}: {e}")
+        logger.error(f"Partner onboarding error for ticket {ticket_id}: {e}")
+        return 1
+
 
 if __name__ == "__main__":
     cli()
