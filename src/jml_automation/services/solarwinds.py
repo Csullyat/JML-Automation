@@ -337,6 +337,53 @@ class SolarWindsService:
         if not success:
             raise SWSDClientError(f"Failed to update ticket {ticket_id} state to '{state}'")
 
+    def assign_and_resolve_ticket(self, ticket_id: str, assignee_name: str = "Cody Atkinson") -> bool:
+        """
+        Assign ticket to user and mark as resolved.
+        
+        Args:
+            ticket_id: Ticket ID (internal or display number)
+            assignee_name: Name of person to assign to
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Resolve ticket ID if it's a display number
+            internal_id = ticket_id
+            if not ticket_id.isdigit() or len(ticket_id) < 6:
+                found_id = self.search_by_display_number(ticket_id)
+                if found_id:
+                    internal_id = found_id
+                else:
+                    log.error(f"Cannot find ticket {ticket_id} to assign")
+                    return False
+            
+            # Update the ticket with assignment and resolved state
+            update_data = {
+                "incident": {
+                    "state": "Resolved",
+                    "assigned_to_name": assignee_name
+                }
+            }
+            log.info(f"Assigning ticket {ticket_id} to {assignee_name} and marking resolved")
+            
+            resp = self._put(f"/incidents/{internal_id}.json", json=update_data)
+            
+            if resp.status_code in (200, 204):
+                log.info(f"Successfully assigned ticket {ticket_id} to {assignee_name} and marked resolved")
+                # Invalidate cache for this ticket
+                if internal_id in self._ticket_cache:
+                    del self._ticket_cache[internal_id]
+                return True
+            else:
+                log.error(f"Failed to assign ticket {ticket_id}: {resp.status_code} - {resp.text}")
+                return False
+                
+        except Exception as e:
+            log.error(f"Error assigning ticket {ticket_id}: {e}")
+            return False
+
     def add_ticket_comment(self, ticket_id: str, comment: str, is_private: bool = False) -> bool:
         """
         Add a comment to a ticket (incident) in SolarWinds.

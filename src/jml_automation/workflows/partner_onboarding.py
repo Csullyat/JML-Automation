@@ -191,6 +191,30 @@ def run(
     
     if user_id:
         print(f"SUCCESS: Created partner user {ticket.partner_name} ({ticket.filevine_email}) with ID {user_id}")
+        
+        # Step 4: Assign ticket to Cody Atkinson and mark as resolved
+        try:
+            from jml_automation.services.solarwinds import SolarWindsService
+            sw_service = SolarWindsService.from_config()
+            
+            # Use the original ticket ID from the ticket data
+            ticket_id = ticket.ticket_id if hasattr(ticket, 'ticket_id') else raw.get('id')
+            
+            if ticket_id:
+                success = sw_service.assign_and_resolve_ticket(str(ticket_id))
+                if success:
+                    print(f"SUCCESS: Assigned ticket {ticket_id} to Cody Atkinson and marked resolved")
+                    log.info(f"Ticket {ticket_id} assigned and resolved successfully")
+                else:
+                    print(f"WARNING: Failed to assign/resolve ticket {ticket_id} - please do manually")
+                    log.warning(f"Failed to assign/resolve ticket {ticket_id}")
+            else:
+                print(f"WARNING: No ticket ID available for assignment")
+                log.warning(f"No ticket ID available for assignment")
+        except Exception as e:
+            print(f"WARNING: Error assigning ticket: {e} - please assign manually")
+            log.warning(f"Error assigning ticket: {e}")
+        
         log.info(f"Partner onboarding completed for {ticket.partner_name} at {ticket.partner_company}")
         return 0
     else:
