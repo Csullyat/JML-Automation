@@ -298,13 +298,27 @@ def run(
             log.warning(f"Microsoft 365 group assignment failed (non-fatal): {e}")
             # Continue with onboarding even if M365 groups fail
 
-    # Update SolarWinds ticket state and add comment (direct API style)
+    # Update SolarWinds ticket state, add comment, and reassign to Laptop Setup
     try:
-        from jml_automation.services.solarwinds import update_ticket_status_direct, add_ticket_comment_direct
+        from jml_automation.services.solarwinds import update_ticket_status_direct, add_ticket_comment_direct, SolarWindsService
         sw_ticket_id = str(ticket.ticket_id)
         sw_ticket_number = sw_ticket_id  # OnboardingTicket does not have display_number
+        
+        # Update status and add comment
         update_ticket_status_direct(sw_ticket_id, sw_ticket_number, "In Progress")
         add_ticket_comment_direct(sw_ticket_id, sw_ticket_number, "User account has been created.")
+        
+        # Reassign from "New Users" to "Laptop Setup" group
+        sw_service = SolarWindsService.from_config()
+        reassign_success = sw_service.reassign_ticket_to_group(sw_ticket_id, "Laptop Setup")
+        
+        if reassign_success:
+            print(f"DEBUG: Successfully reassigned ticket {sw_ticket_id} to Laptop Setup group")
+            log.info(f"Ticket {sw_ticket_id} reassigned to Laptop Setup group")
+        else:
+            print(f"DEBUG: Failed to reassign ticket {sw_ticket_id} to Laptop Setup group")
+            log.warning(f"Failed to reassign ticket {sw_ticket_id} to Laptop Setup group")
+        
         print(f"DEBUG: Updated ticket {sw_ticket_id} state and added comment.")
     except Exception as e:
         log.warning(f"SolarWinds ticket update failed (non-fatal): {e}")

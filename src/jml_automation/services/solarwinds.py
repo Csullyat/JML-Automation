@@ -337,6 +337,64 @@ class SolarWindsService:
         if not success:
             raise SWSDClientError(f"Failed to update ticket {ticket_id} state to '{state}'")
 
+    def reassign_ticket_to_group(self, ticket_id: str, group_name: str) -> bool:
+        """
+        Reassign ticket to a different group.
+        
+        Args:
+            ticket_id: Ticket ID (internal or display number)
+            group_name: Name of group to assign to (e.g., "Laptop Setup")
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Map group names to their IDs
+            group_ids = {
+                "Laptop Setup": 14517342,
+                "New Users": 13668308,
+                # Add more as needed
+            }
+            
+            group_id = group_ids.get(group_name)
+            if not group_id:
+                log.error(f"Unknown group name: {group_name}. Available groups: {list(group_ids.keys())}")
+                return False
+            
+            # Resolve ticket ID if it's a display number
+            internal_id = ticket_id
+            if not ticket_id.isdigit() or len(ticket_id) < 6:
+                found_id = self.search_by_display_number(ticket_id)
+                if found_id:
+                    internal_id = found_id
+                else:
+                    log.error(f"Cannot find ticket {ticket_id} to reassign")
+                    return False
+            
+            # Update the ticket with new group assignment using correct field name
+            update_data = {
+                "incident": {
+                    "assignee_id": group_id
+                }
+            }
+            log.info(f"Reassigning ticket {ticket_id} to group '{group_name}' (ID: {group_id})")
+            
+            resp = self._put(f"/incidents/{internal_id}.json", json=update_data)
+            
+            if resp.status_code in (200, 204):
+                log.info(f"Successfully reassigned ticket {ticket_id} to group '{group_name}'")
+                # Invalidate cache for this ticket
+                if internal_id in self._ticket_cache:
+                    del self._ticket_cache[internal_id]
+                return True
+            else:
+                log.error(f"Failed to reassign ticket {ticket_id}: {resp.status_code} - {resp.text}")
+                return False
+                
+        except Exception as e:
+            log.error(f"Error reassigning ticket {ticket_id}: {e}")
+            return False
+
     def assign_and_resolve_ticket(self, ticket_id: str, assignee_name: str = "Cody Atkinson") -> bool:
         """
         Assign ticket to user and mark as resolved.
