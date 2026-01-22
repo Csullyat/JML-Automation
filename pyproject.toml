@@ -35,5 +35,3 @@ where = ["src"]
 
 [project.scripts]
 jml = "jml_automation.cli.app:cli"
-jml-onboard = "jml_automation.cli.app:onboard"
-jml-terminate = "jml_automation.cli.app:terminate"
