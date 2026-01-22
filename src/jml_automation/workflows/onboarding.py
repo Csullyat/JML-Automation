@@ -271,9 +271,9 @@ def run(
             import time
             
             # Wait for user propagation from Okta to Exchange Online
-            print(f"DEBUG: Waiting 40 seconds for {u.email} to propagate from Okta to Exchange Online...")
-            log.info(f"Waiting 40 seconds for user {u.email} to propagate from Okta to Exchange Online")
-            time.sleep(40)
+            print(f"DEBUG: Waiting 60 seconds for {u.email} to propagate from Okta to Exchange Online...")
+            log.info(f"Waiting 60 seconds for user {u.email} to propagate from Okta to Exchange Online")
+            time.sleep(60)
             
             print(f"DEBUG: Adding Microsoft 365 groups for user {u.email} in department {u.department}")
             
@@ -364,10 +364,22 @@ def run(
             else:
                 print(f"DEBUG: SSO-Swagbucks group not found in Okta")
                 log.warning(f"SSO-Swagbucks group not found in Okta for contractor {u.email}")
+            
+            # Add contractor to the Contractors group
+            contractors_group_id = okta.find_group_id("Contractors")
+            
+            if contractors_group_id:
+                print(f"DEBUG: Found Contractors group ID: {contractors_group_id}")
+                okta.assign_to_groups(user_id, [contractors_group_id])
+                print(f"DEBUG: Successfully added contractor {u.email} to Contractors Okta group")
+                log.info(f"Successfully added contractor {u.email} to Contractors Okta group")
+            else:
+                print(f"DEBUG: Contractors group not found in Okta")
+                log.warning(f"Contractors group not found in Okta for contractor {u.email}")
                 
         except Exception as e:
-            print(f"DEBUG: Contractor Okta group removal failed for {u.email}: {e}")
-            log.warning(f"Contractor Okta group removal failed (non-fatal): {e}")
+            print(f"DEBUG: Contractor Okta group operations failed for {u.email}: {e}")
+            log.warning(f"Contractor Okta group operations failed (non-fatal): {e}")
             # Continue anyway - don't fail onboarding for this
     else:
         hire_type_display = ticket.hire_type or "Not specified"
