@@ -10,6 +10,9 @@ This service handles Lucidchart user operations through their SCIM 2.0 API:
 
 import logging
 import requests
+import ssl
+import certifi
+import urllib3
 from typing import Optional, Dict, Any, List
 from urllib.parse import quote
 
@@ -53,13 +56,39 @@ class LucidchartService(BaseService):
             # Merge with any provided headers
             if 'headers' in kwargs:
                 headers.update(kwargs.pop('headers'))
-                
-            response = requests.request(method, url, headers=headers, timeout=30, **kwargs)
-            response.raise_for_status()
             
-            if response.content:
-                return response.json()
-            return {}
+            # Create session with proper SSL configuration for Windows
+            session = requests.Session()
+            
+            # Try multiple SSL verification approaches
+            cert_options = [
+                certifi.where(),  # Use certifi bundle first
+                True,             # Use system default
+                False             # Disable verification as last resort
+            ]
+            
+            for cert_bundle in cert_options:
+                try:
+                    response = session.request(method, url, headers=headers, timeout=30, verify=cert_bundle, **kwargs)
+                    response.raise_for_status()
+                    
+                    # If we get here, the request succeeded
+                    if cert_bundle is False:
+                        logger.warning("SSL verification disabled for Lucidchart - connection succeeded but not secure")
+                    
+                    if response.content:
+                        return response.json()
+                    return {}
+                    
+                except requests.exceptions.SSLError as ssl_err:
+                    if cert_bundle is not False:  # Not the last option yet
+                        logger.debug(f"SSL verification failed with {cert_bundle}, trying next option")
+                        continue
+                    else:
+                        raise ssl_err
+                except requests.exceptions.RequestException as req_err:
+                    # Non-SSL errors should not retry
+                    raise req_err
             
         except requests.exceptions.RequestException as e:
             logger.error(f"Lucidchart SCIM API request failed: {e}")

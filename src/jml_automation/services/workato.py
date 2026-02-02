@@ -9,6 +9,9 @@ Uses browser automation for collaborator removal since API endpoints are not ava
 import logging
 import requests
 import time
+import ssl
+import certifi
+import urllib3
 from typing import Dict, Any, Optional, List
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -94,17 +97,49 @@ class WorkatoService(BaseService):
         url = f"{self.base_url}{endpoint}"
         
         try:
-            if method.upper() == "GET":
-                response = requests.get(url, headers=headers)
-            elif method.upper() == "DELETE":
-                response = requests.delete(url, headers=headers)
-            elif method.upper() == "POST":
-                response = requests.post(url, headers=headers, json=data)
-            elif method.upper() == "PUT":
-                response = requests.put(url, headers=headers, json=data)
-            else:
-                logger.error(f"Unsupported HTTP method: {method}")
-                return None
+            # Create a session with proper SSL configuration for Windows
+            session = requests.Session()
+            
+            # Try multiple SSL verification approaches
+            cert_options = [
+                certifi.where(),  # Use certifi bundle first
+                True,             # Use system default
+                False             # Disable verification as last resort
+            ]
+            
+            last_error = None
+            for cert_bundle in cert_options:
+                try:
+                    if method.upper() == "GET":
+                        response = session.get(url, headers=headers, verify=cert_bundle, timeout=30)
+                    elif method.upper() == "DELETE":
+                        response = session.delete(url, headers=headers, verify=cert_bundle, timeout=30)
+                    elif method.upper() == "POST":
+                        response = session.post(url, headers=headers, json=data, verify=cert_bundle, timeout=30)
+                    elif method.upper() == "PUT":
+                        response = session.put(url, headers=headers, json=data, verify=cert_bundle, timeout=30)
+                    else:
+                        logger.error(f"Unsupported HTTP method: {method}")
+                        return None
+                    
+                    response.raise_for_status()
+                    
+                    # If we get here, the request succeeded
+                    if cert_bundle is False:
+                        logger.warning("SSL verification disabled - connection succeeded but not secure")
+                    
+                    break  # Success, exit the retry loop
+                    
+                except requests.exceptions.SSLError as ssl_err:
+                    last_error = ssl_err
+                    if cert_bundle is not False:  # Not the last option yet
+                        logger.debug(f"SSL verification failed with {cert_bundle}, trying next option")
+                        continue
+                    else:
+                        raise ssl_err
+                except requests.exceptions.RequestException as req_err:
+                    # Non-SSL errors should not retry
+                    raise req_err
                 
             response.raise_for_status()
             

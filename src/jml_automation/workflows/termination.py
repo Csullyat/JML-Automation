@@ -951,7 +951,7 @@ class TerminationWorkflow:
                         self.solarwinds.update_ticket_status(
                             ticket_id,
                             "In Progress",
-                            notes="Devices locked in Kandji. Sessions cleared and deactivated in Okta. Appropriate deletion and data transfer completed from Microsoft, Google, Zoom, Domo, Lucid, Synq, Adobe, and Workato."
+                            notes="Sessions cleared and deactivated in Okta. Appropriate deletion and data transfer completed from Microsoft, Google, Zoom, Domo, Lucid, Adobe, ChatGPT and Workato. Removed from Synq Prox."
                         )
                         termination_results["summary"].append(f" Ticket {ticket_id} updated to 'In Progress'")
                         logger.info(f"Updated ticket {ticket_id} to 'In Progress' - all phases successful")
