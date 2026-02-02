@@ -62,23 +62,24 @@ class SynqProxService(BaseService):
             return False
 
     def _login(self) -> bool:
-        """Authenticate with SYNQ Prox using service account credentials."""
+        """Authenticate with SYNQ Prox using credentials from 1Password."""
         try:
-            # Try to get credentials from Windows Credential Manager with service account
+            # Get credentials directly from 1Password like other services
+            from jml_automation.config import Config
+            config = Config()
+            
             try:
-                from ..utils.credential_manager import WindowsCredentialManager
-                cred_manager = WindowsCredentialManager()
+                # Get SynQ Prox credentials from 1Password
+                username = config._get_from_onepassword("op://IT/synqprox-admin/username")
+                password = config._get_from_onepassword("op://IT/synqprox-admin/password")
                 
-                # Get SYNQ Prox credentials using service account token
-                creds = cred_manager.get_synqprox_credentials()
-                if creds:
-                    username = creds.get('username')
-                    password = creds.get('password')
-                else:
-                    raise Exception("No credentials found")
+                if not username or not password:
+                    raise Exception("Failed to retrieve credentials from 1Password")
+                    
+                logger.info("Successfully retrieved SynQ Prox credentials from 1Password")
                     
             except Exception as e:
-                logger.warning(f"Windows Credential Manager with service account not available: {e}")
+                logger.error(f"Failed to get SynQ Prox credentials from 1Password: {e}")
                 logger.info("Falling back to environment variables for testing")
                 
                 # Fallback to environment variables for testing
@@ -87,9 +88,9 @@ class SynqProxService(BaseService):
                 password = os.getenv('SYNQPROX_PASSWORD')
                 
                 if not username or not password:
-                    logger.error("No SYNQ Prox credentials available via service account or environment variables")
+                    logger.error("No SYNQ Prox credentials available from 1Password or environment variables")
                     logger.error("For testing, set SYNQPROX_USERNAME and SYNQPROX_PASSWORD environment variables")
-                    logger.error("For production, ensure 'JML Service Account' is stored in Windows Credential Manager")
+                    logger.error("For production, ensure 'synqprox-admin' item exists in 1Password IT vault")
                     return False
             
             if not username or not password:

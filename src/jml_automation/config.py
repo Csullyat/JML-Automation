@@ -433,8 +433,8 @@ class Config:
     def get_domo_credentials(self) -> Tuple[Optional[str], Optional[str]]:
         """Get Domo API credentials from 1Password."""
         paths = self.settings.get('onepassword', {}).get('paths', {})
-        client_id = self._get_from_onepassword(paths.get('domo_client_id', "op://IT/domo-api/username"))
-        client_secret = self._get_from_onepassword(paths.get('domo_client_secret', "op://IT/domo-api/password"))
+        client_id = self._get_from_onepassword(paths.get('domo_client_id', "op://IT/domo-api/Domo Client ID"))
+        client_secret = self._get_from_onepassword(paths.get('domo_client_secret', "op://IT/domo-api/Domo Client Secret"))
         return client_id, client_secret
 
     def get_domo_credentials_dict(self) -> Dict[str, Optional[str]]:

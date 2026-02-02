@@ -15,6 +15,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 def _find_project_root() -> Path:
     """Find project root by looking for pyproject.toml"""
     current = Path(__file__).resolve()

@@ -5,8 +5,18 @@ Handles Domo user management for termination workflows using Domo's User Managem
 
 import logging
 import requests
+import certifi
+import ssl
+import os
 from typing import Dict, Any, Optional
 from jml_automation.config import Config
+
+# Import pip-system-certs to enable Windows certificate store integration
+try:
+    import pip_system_certs.wrapt_requests
+    SYSTEM_CERTS_AVAILABLE = True
+except ImportError:
+    SYSTEM_CERTS_AVAILABLE = False
 
 __all__ = ["DomoService"]
 
@@ -20,12 +30,31 @@ class DomoService:
         self.service_name = "Domo"
         self.config = Config()
         
-        # TODO: Add Domo credentials to config
-        # For now, we'll implement the structure but note missing credentials
+        # Configure SSL verification properly for Windows environments
+        self.session = requests.Session()
+        
+        if SYSTEM_CERTS_AVAILABLE:
+            # pip-system-certs automatically patches requests to use Windows certificate store
+            logger.info("Using Windows system certificate store via pip-system-certs")
+            self.session.verify = True
+        else:
+            # Fallback to certifi bundle
+            try:
+                cert_path = certifi.where()
+                if os.path.exists(cert_path):
+                    self.session.verify = cert_path
+                    logger.info(f"Using certifi CA bundle: {cert_path}")
+                else:
+                    logger.warning("Certifi bundle not found, using system default")
+                    self.session.verify = True
+            except Exception as e:
+                logger.warning(f"Could not configure certificate verification: {e}")
+                self.session.verify = True
+        
         self.base_url = "https://api.domo.com/v1"
         self.access_token = None
         
-        logger.info("Domo service initialized")
+        logger.info("Domo service initialized with proper SSL certificate verification")
 
     def _get_access_token(self) -> Optional[str]:
         """Get OAuth access token for Domo API."""
@@ -49,7 +78,7 @@ class DomoService:
             }
             
             # Make OAuth request
-            response = requests.post(
+            response = self.session.post(
                 token_url,
                 auth=(client_id, client_secret),
                 data=data,
@@ -88,11 +117,11 @@ class DomoService:
         
         try:
             if method.upper() == "GET":
-                response = requests.get(url, headers=headers)
+                response = self.session.get(url, headers=headers)
             elif method.upper() == "DELETE":
-                response = requests.delete(url, headers=headers)
+                response = self.session.delete(url, headers=headers)
             elif method.upper() == "PUT":
-                response = requests.put(url, headers=headers, json=data)
+                response = self.session.put(url, headers=headers, json=data)
             else:
                 logger.error(f"Unsupported HTTP method: {method}")
                 return None
@@ -121,11 +150,11 @@ class DomoService:
         
         try:
             if method.upper() == "GET":
-                response = requests.get(url, headers=headers)
+                response = self.session.get(url, headers=headers)
             elif method.upper() == "DELETE":
-                response = requests.delete(url, headers=headers)
+                response = self.session.delete(url, headers=headers)
             elif method.upper() == "PUT":
-                response = requests.put(url, headers=headers, json=data)
+                response = self.session.put(url, headers=headers, json=data)
             else:
                 return {"success": False, "error": f"Unsupported HTTP method: {method}", "status_code": 400}
                 
