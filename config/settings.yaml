@@ -20,7 +20,7 @@ onepassword:
     slack_token: "op://IT/slack-bot-token/password"
     microsoft_tenant_id: "op://IT/microsoft-graph-api/tenant_id"
     microsoft_client_id: "op://IT/microsoft-graph-api/username"
-    microsoft_client_secret: "op://IT/microsoft-graph-api/password"
+    microsoft_client_secret: "op://IT/microsoft-graph-api/credential"
     exchange_tenant_id: "op://IT/microsoft-graph-api/tenant_id"
     exchange_app_id: "op://IT/microsoft-graph-api/username"
     exchange_cert_thumbprint: "op://IT/microsoft-graph-api/certificate_thumbprint"

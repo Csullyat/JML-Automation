@@ -261,7 +261,7 @@ class Config:
         paths = self.settings.get('onepassword', {}).get('paths', {})
         tenant_id = self._get_from_onepassword(paths.get('microsoft_tenant_id', "op://IT/microsoft-graph-api/tenant_id"))
         client_id = self._get_from_onepassword(paths.get('microsoft_client_id', "op://IT/microsoft-graph-api/username"))
-        client_secret = self._get_from_onepassword(paths.get('microsoft_client_secret', "op://IT/microsoft-graph-api/password"))
+        client_secret = self._get_from_onepassword(paths.get('microsoft_client_secret', "op://IT/microsoft-graph-api/credential"))
         return tenant_id, client_id, client_secret
 
     def get_microsoft_graph_credentials(self) -> Dict[str, Optional[str]]:
