@@ -257,64 +257,13 @@ class DomoService:
             return None
 
     def find_user_by_email(self, email: str) -> Optional[Dict]:
-        """Find Domo user by email address with enhanced debugging."""
+        """Find Domo user by email address using pagination (direct/search methods consistently fail)."""
         try:
             logger.info(f"Searching for Domo user: {email}")
             
-            # Try direct lookup first
-            user = self.find_user_by_email_direct(email)
-            if user:
-                return user
-                
-            # Try search endpoint
-            user = self.find_user_by_email_search(email)
-            if user:
-                return user
-            
-            # Get users list with debugging
-            users_response = self._make_api_request("GET", "/users")
-            
-            if not users_response:
-                logger.error("No response from Domo users API")
-                return None
-            
-            # Log response structure for debugging
-            logger.debug(f"Domo users response type: {type(users_response)}")
-            if isinstance(users_response, dict):
-                logger.debug(f"Domo users response keys: {list(users_response.keys())}")
-            
-            # Handle different response formats
-            if isinstance(users_response, list):
-                users_list = users_response
-            else:
-                users_list = users_response.get("users", [])
-            
-            logger.info(f"Retrieved {len(users_list)} users from Domo API")
-            
-            # Log some sample emails for debugging (without exposing full emails)
-            if users_list and len(users_list) > 0:
-                sample_emails = []
-                for user in users_list[:5]:  # First 5 users
-                    email_addr = user.get("email", "")
-                    if email_addr:
-                        masked_email = email_addr[:3] + "***@" + email_addr.split("@")[1] if "@" in email_addr else email_addr[:3] + "***"
-                        sample_emails.append(masked_email)
-                logger.debug(f"Sample emails in response: {sample_emails}")
-                
-                # Check if our target domain exists
-                target_domain = email.split("@")[1] if "@" in email else ""
-                domain_matches = [user.get("email", "") for user in users_list if target_domain in user.get("email", "")]
-                logger.info(f"Found {len(domain_matches)} users with domain {target_domain}")
-            
-            # Search for user by email
-            for user in users_list:
-                user_email = user.get("email", "")
-                if user_email.lower() == email.lower():
-                    logger.info(f"Found Domo user: {user.get('displayName')} ({email})")
-                    return user
-            
-            # If not found, try pagination approach
-            logger.warning(f"User {email} not found in first {len(users_list)} users, trying pagination...")
+            # Skip direct lookup and search endpoints - they consistently fail with 406/400 errors
+            # Go directly to pagination method that works reliably
+            logger.info("Using pagination approach (direct/search APIs not available)")
             return self._find_user_by_listing(email)
             
         except Exception as e:

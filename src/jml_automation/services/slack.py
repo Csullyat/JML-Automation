@@ -284,3 +284,33 @@ class SlackService(BaseService):
         except Exception as e:
             logger.error(f"Failed to send Slack termination notification: {e}")
             return False
+
+    def send_outlaw_termination_notification(self, user_email: str) -> bool:
+        """Send simple email notification to outlaw_termination_removals channel."""
+        try:
+            message = {
+                "channel": "#outlaw_termination_removals",
+                "text": user_email
+            }
+            
+            response = self.session.post(
+                f"{self.SLACK_API_URL}/chat.postMessage",
+                json=message,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("ok"):
+                    logger.info(f"Outlaw termination notification sent for {user_email}")
+                    return True
+                else:
+                    logger.error(f"Slack API error for outlaw notification: {result.get('error')}")
+                    return False
+            else:
+                logger.error(f"Slack HTTP error for outlaw notification: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to send outlaw termination notification: {e}")
+            return False

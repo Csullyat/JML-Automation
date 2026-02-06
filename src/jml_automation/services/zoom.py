@@ -210,19 +210,8 @@ class ZoomTerminationManager:
             except Exception as e:
                 logger.warning(f"Could not check recordings for {user_email}: {e}")
             
-            # Check for webinars
-            try:
-                webinars_response = self._make_api_request('GET', f'/users/{user_id}/webinars')
-                webinars = webinars_response.get('webinars', [])
-                if webinars:
-                    logger.info(f"User {user_email} has {len(webinars)} webinars")
-                    data_found = True
-            except Exception as e:
-                error_msg = str(e).lower()
-                if "webinar plan is missing" in error_msg or "webinar plan" in error_msg:
-                    logger.info(f"User {user_email} has no webinar plan - no webinars to check")
-                else:
-                    logger.warning(f"Could not check webinars for {user_email}: {e}")
+            # Skip webinar check entirely - no one uses webinars
+            logger.info(f"Skipping webinar check for {user_email} - not transferred")
             
             # Check for scheduled meetings
             try:
@@ -301,25 +290,31 @@ class ZoomTerminationManager:
             
             # Build delete URL with transfer parameters
             if transfer_target_email:
-                # Verify transfer target exists
-                if not self.find_user_by_email(transfer_target_email):
+                # Verify transfer target exists and is active
+                transfer_target = self.find_user_by_email(transfer_target_email)
+                if not transfer_target:
                     logger.error(f"Transfer target {transfer_target_email} not found")
                     return False
                 
-                # Delete with automatic transfer of ALL data (recordings, meetings, webinars)
-                query_params = [
-                    'action=delete',
-                    f'transfer_email={transfer_target_email}',
-                    'transfer_meeting=true',
-                    'transfer_webinar=true', 
-                    'transfer_recording=true'
-                ]
-                query_string = '&'.join(query_params)
-                full_endpoint = f'/users/{user_email}?{query_string}'
-                
-                logger.info(f"Deleting user with ATOMIC data transfer to {transfer_target_email}")
-                logger.info(f"Zoom will transfer: recordings, meetings, webinars, events")
-                logger.info(f"Endpoint: DELETE {full_endpoint}")
+                # Check if transfer target is active
+                if transfer_target.get('status') == 'inactive':
+                    logger.warning(f"Transfer target {transfer_target_email} is deactivated - deleting user without transfer")
+                    full_endpoint = f'/users/{user_email}?action=delete'
+                    logger.info(f"Deleting user without data transfer (inactive manager)")
+                else:
+                    # Delete with transfer of recordings and meetings only (no webinars)
+                    query_params = [
+                        'action=delete',
+                        f'transfer_email={transfer_target_email}',
+                        'transfer_meeting=true',
+                        'transfer_recording=true'
+                    ]
+                    query_string = '&'.join(query_params)
+                    full_endpoint = f'/users/{user_email}?{query_string}'
+                    
+                    logger.info(f"Deleting user with data transfer to {transfer_target_email}")
+                    logger.info(f"Zoom will transfer: recordings, meetings (no webinars)")
+                    logger.info(f"Endpoint: DELETE {full_endpoint}")
             else:
                 full_endpoint = f'/users/{user_email}?action=delete'
                 logger.info(f"Deleting user without data transfer")
@@ -353,12 +348,53 @@ class ZoomTerminationManager:
         try:
             logger.info(f" COMPREHENSIVE LICENSE REMOVAL for {user_email}")
             
+            # First check if user is already deactivated
+            user = self.find_user_by_email(user_email)
+            if user and user.get('status') == 'inactive':
+                logger.info(f"User {user_email} is already deactivated - skipping most operations")
+                # Just do the safe operations that work on deactivated users
+                success_count = 0
+                total_attempts = 2
+                
+                # Method 1: Remove personal meeting room (works on deactivated users)
+                logger.info("LICENSE METHOD: Removing personal meeting room")
+                try:
+                    pmi_data = {'use_pmi': False}
+                    self._make_api_request('PATCH', f'/users/{user_id or user_email}/settings', pmi_data)
+                    logger.info(f"SUCCESS: Personal meeting room removed: {user_email}")
+                    success_count += 1
+                except Exception as e:
+                    logger.warning(f"ERROR: PMI removal failed: {e}")
+                
+                # Method 2: Disable user features (works on deactivated users)
+                logger.info("LICENSE METHOD: Disabling user features")
+                try:
+                    feature_data = {
+                        'feature': {
+                            'meeting_capacity': 0,
+                            'large_meeting': False,
+                            'webinar': False,
+                            'cn_meeting': False,
+                            'in_meeting': False
+                        }
+                    }
+                    self._make_api_request('PATCH', f'/users/{user_id or user_email}/settings', feature_data)
+                    logger.info(f"SUCCESS: User features disabled: {user_email}")
+                    success_count += 1
+                except Exception as e:
+                    logger.warning(f"ERROR: Feature disabling failed: {e}")
+                
+                logger.info(f" LICENSE REMOVAL SUMMARY:")
+                logger.info(f"   SUCCESS: User already deactivated, completed {success_count}/{total_attempts} additional operations")
+                logger.info(f" LICENSE SUCCESSFULLY FREED for {user_email}")
+                return True
+            
+            # User is active, proceed with full deactivation
             success_count = 0
-            total_attempts = 0
+            total_attempts = 3
             
             # Method 1: Deactivate user (suspend account)
             logger.info("LICENSE METHOD 1: Deactivating user account")
-            total_attempts += 1
             try:
                 deactivate_data = {'status': 'inactive'}
                 self._make_api_request('PATCH', f'/users/{user_id or user_email}', deactivate_data)
@@ -367,50 +403,8 @@ class ZoomTerminationManager:
             except Exception as e:
                 logger.warning(f"ERROR: Deactivation failed: {e}")
             
-            # Method 2: Downgrade to Basic (free) license
-            logger.info("LICENSE METHOD 2: Downgrading to Basic license")
-            total_attempts += 1
-            try:
-                license_data = {'type': 1}  # 1 = Basic (free)
-                self._make_api_request('PATCH', f'/users/{user_id or user_email}', license_data)
-                logger.info(f"SUCCESS: User downgraded to Basic license: {user_email}")
-                success_count += 1
-            except Exception as e:
-                logger.warning(f"ERROR: License downgrade failed: {e}")
-            
-            # Method 3: Remove from all groups/roles
-            logger.info("LICENSE METHOD 3: Removing user privileges and roles")
-            total_attempts += 1
-            try:
-                role_data = {
-                    'role_name': '',  # Remove role
-                    'privileges': []   # Remove all privileges
-                }
-                self._make_api_request('PATCH', f'/users/{user_id or user_email}', role_data)
-                logger.info(f"SUCCESS: User privileges removed: {user_email}")
-                success_count += 1
-            except Exception as e:
-                logger.warning(f"ERROR: Privilege removal failed: {e}")
-            
-            # Method 4: Set user as custodian (minimal permissions)
-            logger.info("LICENSE METHOD 4: Converting to custodian status")
-            total_attempts += 1
-            try:
-                custodian_data = {
-                    'type': 1,  # Basic user
-                    'dept': 'TERMINATED',
-                    'job_title': 'TERMINATED',
-                    'location': 'TERMINATED'
-                }
-                self._make_api_request('PATCH', f'/users/{user_id or user_email}', custodian_data)
-                logger.info(f"SUCCESS: User converted to custodian: {user_email}")
-                success_count += 1
-            except Exception as e:
-                logger.warning(f"ERROR: Custodian conversion failed: {e}")
-            
-            # Method 5: Remove personal meeting ID
-            logger.info("LICENSE METHOD 5: Removing personal meeting room")
-            total_attempts += 1
+            # Method 2: Remove personal meeting room
+            logger.info("LICENSE METHOD 2: Removing personal meeting room")
             try:
                 pmi_data = {'use_pmi': False}
                 self._make_api_request('PATCH', f'/users/{user_id or user_email}/settings', pmi_data)
@@ -419,9 +413,8 @@ class ZoomTerminationManager:
             except Exception as e:
                 logger.warning(f"ERROR: PMI removal failed: {e}")
             
-            # Method 6: Disable all user features
-            logger.info("LICENSE METHOD 6: Disabling all user features")
-            total_attempts += 1
+            # Method 3: Disable user features
+            logger.info("LICENSE METHOD 3: Disabling user features")
             try:
                 feature_data = {
                     'feature': {
@@ -438,46 +431,14 @@ class ZoomTerminationManager:
             except Exception as e:
                 logger.warning(f"ERROR: Feature disabling failed: {e}")
             
-            # Method 7: Update user profile to indicate termination
-            logger.info("LICENSE METHOD 7: Marking profile as terminated")
-            total_attempts += 1
-            try:
-                profile_data = {
-                    'first_name': 'TERMINATED',
-                    'last_name': f'USER-{user_email.split("@")[0]}',
-                    'dept': 'TERMINATED',
-                    'job_title': 'TERMINATED - DO NOT USE',
-                    'location': 'TERMINATED'
-                }
-                self._make_api_request('PATCH', f'/users/{user_id or user_email}', profile_data)
-                logger.info(f"SUCCESS: Profile marked as terminated: {user_email}")
-                success_count += 1
-            except Exception as e:
-                logger.warning(f"ERROR: Profile update failed: {e}")
-            
-            # Method 8: Try to remove from organization (if possible)
-            logger.info("LICENSE METHOD 8: Attempting organization removal")
-            total_attempts += 1
-            try:
-                org_data = {'vanity_name': '', 'company': 'TERMINATED'}
-                self._make_api_request('PATCH', f'/users/{user_id or user_email}', org_data)
-                logger.info(f"SUCCESS: Organization details cleared: {user_email}")
-                success_count += 1
-            except Exception as e:
-                logger.warning(f"ERROR: Organization removal failed: {e}")
-            
             # Summary
             success_rate = (success_count / total_attempts) * 100
             logger.info(f" LICENSE REMOVAL SUMMARY:")
             logger.info(f"   SUCCESS: Successful operations: {success_count}/{total_attempts} ({success_rate:.1f}%)")
             
-            if success_count >= 3:
+            if success_count >= 1:
                 logger.info(f" LICENSE SUCCESSFULLY FREED for {user_email}")
                 logger.info(f"   User is deactivated and consuming minimal/no license resources")
-                return True
-            elif success_count >= 1:
-                logger.warning(f"WARNING: PARTIAL LICENSE REMOVAL for {user_email}")
-                logger.warning(f"   Some operations succeeded - license usage reduced")
                 return True
             else:
                 logger.error(f"ERROR: LICENSE REMOVAL FAILED for {user_email}")

@@ -113,14 +113,9 @@ class IruService:
         """
         logger.info(f"Looking up devices for user: {user_email}")
         
-        # Try the new user-first approach first
-        devices = self._find_devices_via_users_api(user_email)
-        if devices:
-            logger.info(f"Found {len(devices)} devices via users API")
-            return devices
-        
-        # Fallback to old method with enhanced debugging
-        logger.info("Users API approach failed, trying device enumeration fallback")
+        # Skip users API approach as it consistently fails with 403 errors
+        # Go directly to device enumeration which works reliably
+        logger.info("Using device enumeration approach (users API not available)")
         return self._find_devices_via_device_enumeration(user_email)
 
     def _find_devices_via_users_api(self, user_email: str) -> List[Dict[str, Any]]:

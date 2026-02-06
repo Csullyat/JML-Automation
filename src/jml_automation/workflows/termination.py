@@ -939,33 +939,8 @@ class TerminationWorkflow:
             
             termination_results["overall_success"] = overall_success
 
-            # Update ticket status ONLY if ALL phases completed successfully
-            if ticket_id:
-                if overall_success:
-                    try:
-                        logger.info(f" All phases successful - updating ticket {ticket_id} to 'In Progress'")
-                        phase_summary = ", ".join([
-                            f"{phase.title()}: {'✓' if termination_results['phase_success'].get(phase) else '✗'}"
-                            for phase in executed_phases
-                        ])
-                        self.solarwinds.update_ticket_status(
-                            ticket_id,
-                            "In Progress",
-                            notes="Sessions cleared and deactivated in Okta. Appropriate deletion and data transfer completed from Microsoft, Google, Zoom, Domo, Lucid, Adobe, ChatGPT and Workato. Removed from Synq Prox."
-                        )
-                        termination_results["summary"].append(f" Ticket {ticket_id} updated to 'In Progress'")
-                        logger.info(f"Updated ticket {ticket_id} to 'In Progress' - all phases successful")
-                    except Exception as e:
-                        logger.error(f"Failed to update ticket {ticket_id}: {e}")
-                        termination_results["warnings"].append(f"Failed to update ticket {ticket_id}")
-                else:
-                    logger.warning(f" Some phases failed - ticket {ticket_id} remains in current state")
-                    failed_phases = [
-                        phase for phase in executed_phases 
-                        if not termination_results["phase_success"].get(phase)
-                    ]
-                    termination_results["summary"].append(f" Ticket {ticket_id} NOT updated - failed phases: {', '.join(failed_phases)}")
-                    logger.warning(f"Ticket {ticket_id} NOT updated - failed phases: {', '.join(failed_phases)}")
+        
+            
             termination_results["end_time"] = datetime.now()
             duration = termination_results["end_time"] - termination_results["start_time"]
             termination_results["duration_seconds"] = duration.total_seconds()
@@ -1387,6 +1362,48 @@ class TerminationWorkflow:
                 logger.info(f"Slack termination notification sent for {user_email}")
             else:
                 logger.warning(f"Slack termination notification failed for {user_email}")
+            
+            # Send outlaw termination notification (just email to specific channel)
+            outlaw_success = slack.send_outlaw_termination_notification(user_email)
+            if outlaw_success:
+                logger.info(f"Outlaw termination notification sent for {user_email}")
+            else:
+                logger.warning(f"Outlaw termination notification failed for {user_email}")
+            
+            # Close the ticket now that notifications are sent
+            if ticket_id and overall_success:
+                try:
+                    logger.info(f"Adding completion comment and closing ticket {ticket_id}")
+                    
+                    # Add detailed completion comment
+                    completion_comment = "Sessions cleared and deactivated in Okta. Appropriate deletion and data transfer completed from Microsoft, Google, Zoom, Domo, Lucid, Adobe, ChatGPT and Workato. Removed from Synq Prox."
+                    
+                    # Add the comment first
+                    comment_added = self.solarwinds.add_ticket_comment(ticket_id, completion_comment)
+                    if comment_added:
+                        logger.info(f"Added completion comment to ticket {ticket_id}")
+                    else:
+                        logger.warning(f"Failed to add comment to ticket {ticket_id}")
+                    
+                    # Then assign and resolve the ticket using email
+                    logger.info(f"Assigning ticket {ticket_id} to codyatkinson@filevine.com and marking resolved")
+                    ticket_closed = self.solarwinds.assign_and_resolve_ticket(
+                        ticket_id, 
+                        assignee_email="codyatkinson@filevine.com"
+                    )
+                    
+                    if ticket_closed:
+                        logger.info(f"Successfully assigned and resolved ticket {ticket_id}")
+                    else:
+                        logger.error(f"Failed to assign and resolve ticket {ticket_id}")
+                        # Fallback: try just updating the state
+                        logger.info(f"Attempting fallback: just updating state to Resolved")
+                        self.solarwinds.update_ticket_state(ticket_id, "Resolved")
+                        
+                except Exception as e:
+                    logger.error(f"Error closing ticket {ticket_id}: {e}", exc_info=True)
+            elif ticket_id and not overall_success:
+                logger.warning(f"Not closing ticket {ticket_id} due to failed phases")
                 
         except Exception as e:
             logger.warning(f"Slack termination notification failed (non-fatal): {e}")

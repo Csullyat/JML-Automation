@@ -30,7 +30,13 @@ def _split_name(full_name: Optional[str]) -> tuple[str, str]:
     return parts[0], ""
 
 def _norm_email(s: Optional[str]) -> Optional[str]:
-    s = (s or "").strip().lower()
+    if not s:
+        return None
+    # Remove invisible characters like zero-width spaces, non-breaking spaces, etc.
+    import unicodedata
+    s = s.strip().lower()
+    # Remove zero-width characters and other invisible unicode characters
+    s = ''.join(char for char in s if unicodedata.category(char)[0] != 'C' or char in '\t\n\r')
     return s or None
 
 def _phone_dash_10(s: Optional[str]) -> Optional[str]:
@@ -319,6 +325,10 @@ def parse_onboarding(raw: RawTicket) -> OnboardingTicket:
         # Normalize Unicode characters to ASCII for email generation
         first_ascii = unidecode(first).replace(" ", "").lower()
         last_ascii = unidecode(last).replace(" ", "").lower()
+        # Remove periods and other punctuation from names (e.g., "Jr.", "Sr.", etc.)
+        import re
+        first_ascii = re.sub(r'[^\w]', '', first_ascii)
+        last_ascii = re.sub(r'[^\w]', '', last_ascii)
         email = f"{first_ascii}{last_ascii}@filevine.com"
 
     # Build a user profile

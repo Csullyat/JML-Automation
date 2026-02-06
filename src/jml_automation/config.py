@@ -516,7 +516,12 @@ class Config:
         
         # Test 1Password service account
         try:
-            token = self.get_service_account_token_from_credential_manager()
+            # Check environment variable first (like the working method)
+            import os
+            token = os.environ.get('OP_SERVICE_ACCOUNT_TOKEN')
+            if not token:
+                # Fall back to credential manager
+                token = self.get_service_account_token_from_credential_manager()
             results['onepassword_service_account'] = bool(token)
         except:
             results['onepassword_service_account'] = False

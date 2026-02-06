@@ -395,13 +395,13 @@ class SolarWindsService:
             log.error(f"Error reassigning ticket {ticket_id}: {e}")
             return False
 
-    def assign_and_resolve_ticket(self, ticket_id: str, assignee_name: str = "Cody Atkinson") -> bool:
+    def assign_and_resolve_ticket(self, ticket_id: str, assignee_email: str = "codyatkinson@filevine.com") -> bool:
         """
         Assign ticket to user and mark as resolved.
         
         Args:
             ticket_id: Ticket ID (internal or display number)
-            assignee_name: Name of person to assign to
+            assignee_email: Email of person to assign to (default: codyatkinson@filevine.com)
             
         Returns:
             True if successful, False otherwise
@@ -418,18 +418,21 @@ class SolarWindsService:
                     return False
             
             # Update the ticket with assignment and resolved state
+            # Use assignee with email for user assignment
             update_data = {
                 "incident": {
                     "state": "Resolved",
-                    "assigned_to_name": assignee_name
+                    "assignee": {
+                        "email": assignee_email
+                    }
                 }
             }
-            log.info(f"Assigning ticket {ticket_id} to {assignee_name} and marking resolved")
+            log.info(f"Assigning ticket {ticket_id} to {assignee_email} and marking resolved")
             
             resp = self._put(f"/incidents/{internal_id}.json", json=update_data)
             
             if resp.status_code in (200, 204):
-                log.info(f"Successfully assigned ticket {ticket_id} to {assignee_name} and marked resolved")
+                log.info(f"Successfully assigned ticket {ticket_id} to {assignee_email} and marked resolved")
                 # Invalidate cache for this ticket
                 if internal_id in self._ticket_cache:
                     del self._ticket_cache[internal_id]
@@ -439,7 +442,7 @@ class SolarWindsService:
                 return False
                 
         except Exception as e:
-            log.error(f"Error assigning ticket {ticket_id}: {e}")
+            log.error(f"Error assigning ticket {ticket_id}: {e}", exc_info=True)
             return False
 
     def add_ticket_comment(self, ticket_id: str, comment: str, is_private: bool = False) -> bool:
@@ -465,7 +468,10 @@ class SolarWindsService:
                     log.error(f"Cannot find ticket {ticket_id} to add comment")
                     return False
             
-            # Add the comment
+            log.info(f"Adding comment to ticket {ticket_id} (internal ID: {internal_id})")
+            log.debug(f"Comment text: {comment[:100]}...")
+            
+            # Add the comment - try different API structures
             comment_data = {
                 "comment": {
                     "body": comment,
@@ -473,18 +479,34 @@ class SolarWindsService:
                 }
             }
             
-            log.info(f"Adding comment to ticket {ticket_id}")
             resp = self._post(f"/incidents/{internal_id}/comments.json", json=comment_data)
+            log.info(f"Comment API response: {resp.status_code} - {resp.text[:200]}")
             
             if resp.status_code in (200, 201):
                 log.info(f"Successfully added comment to ticket {ticket_id}")
                 return True
             else:
-                log.error(f"Failed to add comment to ticket {ticket_id}: {resp.status_code}")
-                return False
+                log.error(f"Failed to add comment to ticket {ticket_id}: {resp.status_code} - {resp.text}")
+                
+                # Try alternative API structure if first fails
+                log.info("Trying alternative comment structure...")
+                alt_comment_data = {
+                    "body": comment,
+                    "is_private": is_private
+                }
+                
+                resp2 = self._post(f"/incidents/{internal_id}/comments.json", json=alt_comment_data)
+                log.info(f"Alternative comment API response: {resp2.status_code} - {resp2.text[:200]}")
+                
+                if resp2.status_code in (200, 201):
+                    log.info(f"Successfully added comment to ticket {ticket_id} (alternative structure)")
+                    return True
+                else:
+                    log.error(f"Both comment structures failed for ticket {ticket_id}")
+                    return False
                 
         except Exception as e:
-            log.error(f"Error adding comment to ticket {ticket_id}: {e}")
+            log.error(f"Error adding comment to ticket {ticket_id}: {e}", exc_info=True)
             return False
 
     # ---- User Operations -----------------------------------------------------

@@ -67,6 +67,10 @@ class GoogleTerminationManager:
             logger.info(f"Looking up manager for data transfer: {manager_email}")
             manager = self.find_user_by_email(manager_email)
             if manager:
+                # Check if manager is active
+                if manager.get('suspended', False):
+                    logger.warning(f"Manager {manager_email} is suspended - data transfer may fail")
+                
                 logger.info(f"Found manager: {manager.get('name', {}).get('fullName')} ({manager_email})")
                 return manager
             else:
@@ -87,6 +91,12 @@ class GoogleTerminationManager:
             if not manager:
                 logger.error(f"Cannot transfer data: manager {manager_email} not found")
                 return False
+            
+            # Check if manager is suspended
+            if manager.get('suspended', False):
+                logger.error(f"Cannot transfer data: manager {manager_email} is suspended")
+                return False
+            
             applications = [
                 {'id': 55656082996, 'name': 'Drive and Docs'},
                 {'id': 435070579839, 'name': 'Gmail'}
