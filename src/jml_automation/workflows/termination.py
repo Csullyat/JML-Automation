@@ -1445,111 +1445,14 @@ class TerminationWorkflow:
         except Exception as e:
             logger.error(f"Failed to log batch summary: {e}")
 
-
-# ========== Main Entry Points ==========
-
-def run(
-    *,
-    ticket_id: Optional[str] = None,
-    ticket_raw: Optional[Dict[str, Any]] = None,
-    dry_run: bool = True,
-    push_domo: bool = False,
-) -> int:
-    """
-    Execute the termination workflow (backward compatibility).
-    Simple mode - Okta only.
-    """
-    workflow = TerminationWorkflow()
-    return workflow.execute_simple_termination(ticket_id, ticket_raw, dry_run)
-
-
-def main():
-    """Main entry point for termination automation."""
-    setup_logging()
-    
-    logger.info("=" * 80)
-    logger.info("TERMINATION WORKFLOW STARTING")
-    logger.info("=" * 80)
-    
-    try:
-        # Initialize workflow
-        workflow = TerminationWorkflow()
-        
-        # Parse command line arguments
-        if len(sys.argv) > 1:
-            command = sys.argv[1].lower()
-            
-            if command == "test" and len(sys.argv) > 2:
-                # Test mode for single user
-                user_email = sys.argv[2]
-                manager_email = sys.argv[3] if len(sys.argv) > 3 else None
-                
-                logger.info(f"Running test mode for {user_email}")
-                results = workflow.test_termination(user_email, manager_email)
-                
-                print(f"\nTEST: TEST MODE RESULTS for {user_email}")
-                print(f"Overall Ready: {'SUCCESS: YES' if results['overall_ready'] else 'ERROR: NO'}")
-                print(f"\nWould Execute:")
-                for action in results["would_execute"]:
-                    print(f"  SUCCESS: {action}")
-                print(f"\nPotential Issues:")
-                for issue in results["potential_issues"]:
-                    print(f"  WARNING: {issue}")
-                
-                sys.exit(0 if results["overall_ready"] else 1)
-                
-            elif command == "simple" and len(sys.argv) > 2:
-                # Simple mode (Okta only)
-                ticket_id = sys.argv[2]
-                dry_run = "--dry-run" in sys.argv
-                
-                logger.info(f"Running simple termination for ticket {ticket_id}")
-                exit_code = workflow.execute_simple_termination(ticket_id=ticket_id, dry_run=dry_run)
-                sys.exit(exit_code)
-                
-            elif command == "batch":
-                # Batch processing mode
-                logger.info("Running batch termination processing")
-                workflow.run_batch_processing()
-                sys.exit(0)
-                
-            elif command not in ["test", "simple", "batch"]:
-                # Single user termination (enterprise mode)
-                user_email = sys.argv[1]
-                manager_email = sys.argv[2] if len(sys.argv) > 2 else None
-                phases = sys.argv[3].split(",") if len(sys.argv) > 3 else None
-                
-                logger.info(f"Running enterprise termination for {user_email}")
-                results = workflow.execute_multi_phase_termination(user_email, manager_email, phases=phases)
-                
-                if results["overall_success"]:
-                    print(f"SUCCESS: TERMINATION SUCCESSFUL for {user_email}")
-                    sys.exit(0)
-                else:
-                    print(f"WARNING: TERMINATION COMPLETED WITH ISSUES for {user_email}")
-                    sys.exit(1)
-        else:
-            # Default: Run batch processing
-            logger.info("Running batch termination processing (default)")
-            workflow.run_batch_processing()
-            
-    except KeyboardInterrupt:
-        logger.info("Termination automation interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Fatal error in termination automation: {e}")
-        sys.exit(1)
-    
     # ========== COMPREHENSIVE TICKET-BASED TERMINATION ==========
-    
+
     def execute_comprehensive_termination_from_ticket(self, ticket_id: str) -> Dict[str, Any]:
         """
         Execute complete termination workflow from a single ticket number.
         
-        This is the master workflow that handles everything:
-        1. Fetch ticket from SolarWinds
-        2. Extract user and manager information 
-        3. Execute all termination steps across all systems
+        Fetches ticket, extracts user/manager info, then delegates to execute_multi_phase_termination
+        which handles all the actual termination logic with proper group removal.
         
         Args:
             ticket_id: SolarWinds ticket number (e.g., "64570")
@@ -1557,249 +1460,62 @@ def main():
         Returns:
             Comprehensive results dictionary with all system results
         """
-        logger.info(f" STARTING COMPREHENSIVE TERMINATION FOR TICKET {ticket_id}")
+        logger.info(f"STARTING COMPREHENSIVE TERMINATION FOR TICKET {ticket_id}")
         logger.info("=" * 80)
         
-        start_time = datetime.now()
-        workflow_results = {
-            'ticket_id': ticket_id,
-            'start_time': start_time,
-            'overall_success': False,
-            'user_email': None,
-            'manager_email': None,
-            'ticket_data': None,
-            'system_results': {},
-            'summary': [],
-            'errors': [],
-            'warnings': []
-        }
-        
         try:
-            # STEP 1: Fetch and parse ticket
-            logger.info(f" STEP 1: Fetching termination ticket {ticket_id}")
+            # STEP 1: Fetch ticket from SolarWinds
+            logger.info(f"STEP 1: Fetching termination ticket {ticket_id}")
             ticket_data = self.solarwinds.fetch_ticket(ticket_id)
             
             if not ticket_data:
                 error_msg = f"Failed to fetch ticket {ticket_id}"
                 logger.error(error_msg)
-                workflow_results['errors'].append(error_msg)
-                return workflow_results
+                return {
+                    'overall_success': False,
+                    'error': error_msg,
+                    'errors': [error_msg]
+                }
             
-            workflow_results['ticket_data'] = ticket_data
             ticket_subject = ticket_data.get('subject', 'No subject')
             logger.info(f"SUCCESS: Ticket fetched: {ticket_subject}")
             
-            # STEP 2: Extract user and manager emails using enhanced Okta lookup
-            logger.info(" STEP 2: Extracting user and manager information")
+            # STEP 2: Extract user and manager emails
+            logger.info("STEP 2: Extracting user and manager information")
             user_email = self.resolve_user_email_from_ticket(ticket_data)
             manager_email = extract_manager_email_from_ticket(ticket_data)
             
             if not user_email:
                 error_msg = "Could not extract user email from ticket"
                 logger.error(error_msg)
-                workflow_results['errors'].append(error_msg)
-                return workflow_results
+                return {
+                    'overall_success': False,
+                    'error': error_msg,
+                    'errors': [error_msg]
+                }
             
-            workflow_results['user_email'] = user_email
-            workflow_results['manager_email'] = manager_email
             logger.info(f"SUCCESS: Target user: {user_email}")
-            if manager_email:
-                logger.info(f"SUCCESS: Manager: {manager_email}")
-            else:
-                logger.warning("WARNING:  No manager email found")
+            logger.info(f"Manager: {manager_email or 'None'}")
             
-            # STEP 3: Execute Okta termination (highest priority)
-            logger.info(" STEP 3: OKTA TERMINATION")
-            logger.info("   - Finding user in Okta")
-            logger.info("   - Clearing all sessions") 
-            logger.info("   - Deactivating user")
-            logger.info("   - (Group removal handled by individual apps)")
+            # STEP 3: Execute multi-phase termination
+            # This method has ALL the proper logic: group removal, error handling, etc.
+            logger.info("STEP 3: Executing multi-phase termination across all systems")
+            results = self.execute_multi_phase_termination(
+                user_email=user_email,
+                manager_email=manager_email,
+                ticket_id=ticket_id
+            )
             
-            okta_result = self.execute_okta_termination(user_email)
-            workflow_results['system_results']['okta'] = okta_result
-            
-            if okta_result.get('success'):
-                workflow_results['summary'].append("SUCCESS: Okta: User deactivated and sessions cleared")
-                logger.info("SUCCESS: Okta termination completed successfully")
-            else:
-                error_msg = f"ERROR: Okta termination failed: {okta_result.get('error', 'Unknown error')}"
-                workflow_results['errors'].append(error_msg)
-                logger.error(error_msg)
-            
-            # STEP 4: Exchange and M365 termination
-            logger.info(" STEP 4: MICROSOFT 365 & EXCHANGE TERMINATION")
-            logger.info("   - Converting mailbox to shared")
-            logger.info("   - Setting delegate permissions")
-            logger.info("   - Revoking M365 licenses")
-            logger.info("   - Removing from M365 groups")
-            
-            try:
-                from jml_automation.services.microsoft import MicrosoftTermination
-                microsoft_service = MicrosoftTermination()
-                microsoft_result = microsoft_service.execute_complete_termination(user_email, manager_email or "")
-                workflow_results['system_results']['microsoft'] = microsoft_result
-                
-                if microsoft_result.get('success'):
-                    workflow_results['summary'].append("SUCCESS: Microsoft: Mailbox converted, licenses revoked, groups removed")
-                    logger.info("SUCCESS: Microsoft termination completed successfully")
-                else:
-                    error_msg = f"ERROR: Microsoft termination failed: {microsoft_result.get('error', 'Unknown error')}"
-                    workflow_results['warnings'].append(error_msg)  # Not critical
-                    logger.warning(error_msg)
-            except Exception as e:
-                error_msg = f"ERROR: Microsoft termination error: {e}"
-                workflow_results['warnings'].append(error_msg)
-                logger.warning(error_msg)
-            
-            # STEP 5: Google Workspace termination
-            logger.info(" STEP 5: GOOGLE WORKSPACE TERMINATION")
-            logger.info("   - Transferring Google Drive data")
-            logger.info("   - Deleting user account")
-            
-            try:
-                from jml_automation.services.google import GoogleTerminationManager
-                google_service = GoogleTerminationManager()
-                google_result = google_service.execute_complete_termination(user_email, manager_email or "")
-                workflow_results['system_results']['google'] = {'success': google_result}
-                
-                if google_result:
-                    workflow_results['summary'].append("SUCCESS: Google: Data transferred, user deleted")
-                    logger.info("SUCCESS: Google termination completed successfully")
-                else:
-                    error_msg = f"ERROR: Google termination failed"
-                    workflow_results['warnings'].append(error_msg)
-                    logger.warning(error_msg)
-            except Exception as e:
-                error_msg = f"ERROR: Google termination error: {e}"
-                workflow_results['warnings'].append(error_msg)
-                logger.warning(error_msg)
-            
-            # STEP 6: Zoom termination
-            logger.info(" STEP 6: ZOOM TERMINATION")
-            logger.info("   - Transferring Zoom data")
-            logger.info("   - Deleting user account")
-            
-            try:
-                from jml_automation.services.zoom import ZoomService
-                zoom_service = ZoomService()
-                zoom_result = zoom_service.execute_complete_termination(user_email, manager_email)
-                workflow_results['system_results']['zoom'] = zoom_result
-                
-                if zoom_result.get('success'):
-                    workflow_results['summary'].append("SUCCESS: Zoom: Data transferred, user deleted")
-                    logger.info("SUCCESS: Zoom termination completed successfully")
-                else:
-                    error_msg = f"ERROR: Zoom termination failed: {zoom_result.get('error', 'Unknown error')}"
-                    workflow_results['warnings'].append(error_msg)
-                    logger.warning(error_msg)
-            except Exception as e:
-                error_msg = f"ERROR: Zoom termination error: {e}"
-                workflow_results['warnings'].append(error_msg)
-                logger.warning(error_msg)
-            
-            # STEP 7: Domo termination
-            logger.info(" STEP 7: DOMO TERMINATION")
-            logger.info("   - Deleting user from Domo")
-            
-            try:
-                from jml_automation.services.domo import DomoService
-                domo_service = DomoService()
-                domo_result = domo_service.execute_termination(user_email)
-                workflow_results['system_results']['domo'] = domo_result
-                
-                if domo_result.get('success'):
-                    workflow_results['summary'].append("SUCCESS: Domo: User deleted")
-                    logger.info("SUCCESS: Domo termination completed successfully")
-                else:
-                    error_msg = f"ERROR: Domo termination failed: {domo_result.get('error', 'Unknown error')}"
-                    workflow_results['warnings'].append(error_msg)
-                    logger.warning(error_msg)
-            except Exception as e:
-                error_msg = f"ERROR: Domo termination error: {e}"
-                workflow_results['warnings'].append(error_msg)
-                logger.warning(error_msg)
-            
-            # STEP 8: Lucid termination
-            logger.info(" STEP 8: LUCID TERMINATION")
-            logger.info("   - Transferring Lucid data")
-            logger.info("   - Deleting user account")
-            logger.info("   - Removing from Okta Lucid groups")
-            
-            try:
-                from jml_automation.services.lucid import LucidService
-                lucid_service = LucidService()
-                lucid_result = lucid_service.execute_complete_termination(user_email, manager_email)
-                workflow_results['system_results']['lucid'] = lucid_result
-                
-                if lucid_result.get('success'):
-                    workflow_results['summary'].append("SUCCESS: Lucid: Data transferred, user deleted, groups removed")
-                    logger.info("SUCCESS: Lucid termination completed successfully")
-                else:
-                    error_msg = f"ERROR: Lucid termination failed: {lucid_result.get('error', 'Unknown error')}"
-                    workflow_results['warnings'].append(error_msg)
-                    logger.warning(error_msg)
-            except Exception as e:
-                error_msg = f"ERROR: Lucid termination error: {e}"
-                workflow_results['warnings'].append(error_msg)
-                logger.warning(error_msg)
-            
-            # STEP 9: SYNQ Prox termination (final step)
-            logger.info(" STEP 9: SYNQ PROX TERMINATION")
-            logger.info("   - Deleting user from SYNQ Prox")
-            
-            synq_result = self.synqprox.execute_termination(user_email)
-            workflow_results['system_results']['synqprox'] = synq_result
-            
-            if synq_result.get('success'):
-                workflow_results['summary'].append("SUCCESS: SYNQ Prox: User deleted")
-                logger.info("SUCCESS: SYNQ Prox termination completed successfully")
-            else:
-                error_msg = f"ERROR: SYNQ Prox termination failed: {synq_result.get('error', 'Unknown error')}"
-                workflow_results['warnings'].append(error_msg)  # SYNQ failure not critical
-                logger.warning(error_msg)
-            
-            # STEP 10: Calculate overall success
-            end_time = datetime.now()
-            duration = end_time - start_time
-            workflow_results['end_time'] = end_time
-            workflow_results['duration'] = duration.total_seconds()
-            
-            # Success if Okta worked (minimum requirement)
-            critical_success = okta_result.get('success', False)
-            workflow_results['overall_success'] = critical_success
-            
-            # Generate final summary
-            logger.info("=" * 80)
-            logger.info(" COMPREHENSIVE TERMINATION COMPLETED")
-            logger.info("=" * 80)
-            logger.info(f" Ticket: {ticket_id}")
-            logger.info(f"User: User: {user_email}")
-            logger.info(f"  Duration: {duration}")
-            logger.info(f"SUCCESS: Overall Success: {workflow_results['overall_success']}")
-            
-            logger.info("\n SYSTEM RESULTS:")
-            for system, result in workflow_results['system_results'].items():
-                status = "SUCCESS:" if result.get('success') else "ERROR:"
-                logger.info(f"   {status} {system.upper()}: {result.get('message', 'No message')}")
-            
-            if workflow_results['warnings']:
-                logger.info(f"\nWARNING:  WARNINGS ({len(workflow_results['warnings'])}):")
-                for warning in workflow_results['warnings']:
-                    logger.info(f"   - {warning}")
-            
-            if workflow_results['errors']:
-                logger.info(f"\nERROR: ERRORS ({len(workflow_results['errors'])}):")
-                for error in workflow_results['errors']:
-                    logger.info(f"   - {error}")
-            
-            return workflow_results
+            return results
             
         except Exception as e:
             error_msg = f"Critical workflow error: {e}"
             logger.error(error_msg)
-            workflow_results['errors'].append(error_msg)
-            workflow_results['overall_success'] = False
-            return workflow_results
+            return {
+                'overall_success': False,
+                'error': error_msg,
+                'errors': [error_msg]
+            }
     
     def execute_multiple_ticket_terminations(self, ticket_numbers: str) -> Dict[str, Any]:
         """
@@ -1911,6 +1627,101 @@ def main():
             batch_results['error'] = f'Critical batch error: {str(e)}'
             batch_results['end_time'] = datetime.now()
             return batch_results
+
+
+# ========== Main Entry Points ==========
+
+def run(
+    *,
+    ticket_id: Optional[str] = None,
+    ticket_raw: Optional[Dict[str, Any]] = None,
+    dry_run: bool = True,
+    push_domo: bool = False,
+) -> int:
+    """
+    Execute the termination workflow (backward compatibility).
+    Simple mode - Okta only.
+    """
+    workflow = TerminationWorkflow()
+    return workflow.execute_simple_termination(ticket_id, ticket_raw, dry_run)
+
+
+def main():
+    """Main entry point for termination automation."""
+    setup_logging()
+    
+    logger.info("=" * 80)
+    logger.info("TERMINATION WORKFLOW STARTING")
+    logger.info("=" * 80)
+    
+    try:
+        # Initialize workflow
+        workflow = TerminationWorkflow()
+        
+        # Parse command line arguments
+        if len(sys.argv) > 1:
+            command = sys.argv[1].lower()
+            
+            if command == "test" and len(sys.argv) > 2:
+                # Test mode for single user
+                user_email = sys.argv[2]
+                manager_email = sys.argv[3] if len(sys.argv) > 3 else None
+                
+                logger.info(f"Running test mode for {user_email}")
+                results = workflow.test_termination(user_email, manager_email)
+                
+                print(f"\nTEST: TEST MODE RESULTS for {user_email}")
+                print(f"Overall Ready: {'SUCCESS: YES' if results['overall_ready'] else 'ERROR: NO'}")
+                print(f"\nWould Execute:")
+                for action in results["would_execute"]:
+                    print(f"  SUCCESS: {action}")
+                print(f"\nPotential Issues:")
+                for issue in results["potential_issues"]:
+                    print(f"  WARNING: {issue}")
+                
+                sys.exit(0 if results["overall_ready"] else 1)
+                
+            elif command == "simple" and len(sys.argv) > 2:
+                # Simple mode (Okta only)
+                ticket_id = sys.argv[2]
+                dry_run = "--dry-run" in sys.argv
+                
+                logger.info(f"Running simple termination for ticket {ticket_id}")
+                exit_code = workflow.execute_simple_termination(ticket_id=ticket_id, dry_run=dry_run)
+                sys.exit(exit_code)
+                
+            elif command == "batch":
+                # Batch processing mode
+                logger.info("Running batch termination processing")
+                workflow.run_batch_processing()
+                sys.exit(0)
+                
+            elif command not in ["test", "simple", "batch"]:
+                # Single user termination (enterprise mode)
+                user_email = sys.argv[1]
+                manager_email = sys.argv[2] if len(sys.argv) > 2 else None
+                phases = sys.argv[3].split(",") if len(sys.argv) > 3 else None
+                
+                logger.info(f"Running enterprise termination for {user_email}")
+                results = workflow.execute_multi_phase_termination(user_email, manager_email, phases=phases)
+                
+                if results["overall_success"]:
+                    print(f"SUCCESS: TERMINATION SUCCESSFUL for {user_email}")
+                    sys.exit(0)
+                else:
+                    print(f"WARNING: TERMINATION COMPLETED WITH ISSUES for {user_email}")
+                    sys.exit(1)
+        else:
+            # Default: Run batch processing
+            logger.info("Running batch termination processing (default)")
+            workflow.run_batch_processing()
+            
+    except KeyboardInterrupt:
+        logger.info("Termination automation interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Fatal error in termination automation: {e}")
+        sys.exit(1)
 
 
 def process_multiple_tickets(ticket_numbers: str) -> Dict[str, Any]:

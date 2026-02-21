@@ -12,19 +12,13 @@ This module orchestrates the complete partner onboarding process:
 from __future__ import annotations
 
 import logging
-from logging.handlers import RotatingFileHandler
 from typing import Optional, Dict, Any
 
 from jml_automation.parsers import parse_ticket, fetch_ticket
 from jml_automation.models.ticket import PartnerTicket
 
+# Use the centralized logger instead of setting up our own
 log = logging.getLogger("jml_automation")
-log.setLevel(logging.INFO)
-if not log.handlers:
-    handler = RotatingFileHandler("logs/jml_automation.log", maxBytes=1048576, backupCount=3)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-    handler.setFormatter(formatter)
-    log.addHandler(handler)
 
 
 def _plan_from_ticket(ticket: PartnerTicket) -> list[str]:

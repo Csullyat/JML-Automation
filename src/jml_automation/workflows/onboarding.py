@@ -11,7 +11,6 @@ This module orchestrates the complete onboarding process:
 from __future__ import annotations
 
 import logging
-from logging.handlers import RotatingFileHandler
 from typing import Optional, Dict, Any
 
 
@@ -20,13 +19,8 @@ from jml_automation.models.ticket import OnboardingTicket
 from timezonefinder import TimezoneFinder
 from geopy.geocoders import Nominatim
 
+# Use the centralized logger instead of setting up our own
 log = logging.getLogger("jml_automation")
-log.setLevel(logging.INFO)
-if not log.handlers:
-    handler = RotatingFileHandler("logs/jml_automation.log", maxBytes=1048576, backupCount=3)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-    handler.setFormatter(formatter)
-    log.addHandler(handler)
 
 def _plan_from_ticket(ticket: OnboardingTicket) -> list[str]:
     user = ticket.user
@@ -271,9 +265,9 @@ def run(
             import time
             
             # Wait for user propagation from Okta to Exchange Online
-            print(f"DEBUG: Waiting 60 seconds for {u.email} to propagate from Okta to Exchange Online...")
-            log.info(f"Waiting 60 seconds for user {u.email} to propagate from Okta to Exchange Online")
-            time.sleep(60)
+            print(f"DEBUG: Waiting 90 seconds for {u.email} to propagate from Okta to Exchange Online...")
+            log.info(f"Waiting 90 seconds for user {u.email} to propagate from Okta to Exchange Online")
+            time.sleep(90)
             
             print(f"DEBUG: Adding Microsoft 365 groups for user {u.email} in department {u.department}")
             
@@ -344,33 +338,19 @@ def run(
     # 4) Handle contractor-specific logic
     if ticket.hire_type and ticket.hire_type.strip().lower() == "contractor":
         try:
-            print(f"DEBUG: Detected contractor hire type for {u.email}, removing from SSO-Swagbucks Okta group")
+            print(f"DEBUG: Detected contractor hire type for {u.email}, adding to Contractors group")
             log.info(f"Processing contractor-specific logic for {u.email}")
             
-            # Wait a bit for user to propagate in Okta before attempting removal
-            print(f"DEBUG: Waiting 10 seconds for user propagation before SSO-Swagbucks removal...")
+            # Wait a bit for user to propagate in Okta before attempting group operations
+            print(f"DEBUG: Waiting 10 seconds for user propagation before Contractors group addition...")
             time.sleep(10)
-            
-            # Find the SSO-Swagbucks group ID in Okta
-            swagbucks_group_id = okta.find_group_id("SSO-Swagbucks")
-            
-            if swagbucks_group_id:
-                print(f"DEBUG: Found SSO-Swagbucks group ID: {swagbucks_group_id}")
-                
-                # Remove user from the group (using list of group IDs)
-                okta.remove_from_groups(user_id, [swagbucks_group_id])
-                print(f"DEBUG: Successfully removed contractor {u.email} from SSO-Swagbucks Okta group")
-                log.info(f"Successfully removed contractor {u.email} from SSO-Swagbucks Okta group")
-            else:
-                print(f"DEBUG: SSO-Swagbucks group not found in Okta")
-                log.warning(f"SSO-Swagbucks group not found in Okta for contractor {u.email}")
             
             # Add contractor to the Contractors group
             contractors_group_id = okta.find_group_id("Contractors")
             
             if contractors_group_id:
                 print(f"DEBUG: Found Contractors group ID: {contractors_group_id}")
-                okta.assign_to_groups(user_id, [contractors_group_id])
+                okta.add_to_groups(user_id, [contractors_group_id])
                 print(f"DEBUG: Successfully added contractor {u.email} to Contractors Okta group")
                 log.info(f"Successfully added contractor {u.email} to Contractors Okta group")
             else:

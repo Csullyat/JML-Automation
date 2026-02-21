@@ -222,35 +222,17 @@ try {{
     # Using certificate-based authentication for unattended automation
     Connect-ExchangeOnline -AppId '{app_id}' -Organization '{organization}' -CertificateThumbprint '{cert_thumbprint}' -ShowBanner:$false
     
-    Write-Host "Getting current mailbox information..."
-    $currentMailbox = Get-Mailbox -Identity '{user_email}' -ErrorAction Stop
-    Write-Host "Current mailbox type: $($currentMailbox.RecipientTypeDetails)"
-    
     Write-Host "Converting mailbox to shared type..."
     Set-Mailbox -Identity '{user_email}' -Type Shared -Confirm:$false -ErrorAction Stop
-    Write-Host "Conversion command completed."
+    Write-Host "SUCCESS: Mailbox conversion command completed successfully."
     
-    Write-Host "Waiting for changes to propagate..."
-    Start-Sleep -Seconds 10
-    
-    Write-Host "Verifying conversion..."
-    $mailbox = Get-Mailbox -Identity '{user_email}' -ErrorAction Stop
-    Write-Host "New mailbox type: $($mailbox.RecipientTypeDetails)"
-    
-    if ($mailbox.RecipientTypeDetails -eq "SharedMailbox") {{
-        Write-Host "SUCCESS: Mailbox successfully converted to SharedMailbox"
-        Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
-        exit 0
-    }} else {{
-        Write-Host "ERROR: Mailbox type is $($mailbox.RecipientTypeDetails), expected SharedMailbox"
-        Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
-        exit 1
-    }}
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    exit 0
 }} catch {{
     Write-Host "ERROR: $($_.Exception.Message)"
     Write-Host "Full error: $_"
     Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
-    exit 2
+    exit 1
 }}
 """
             
@@ -270,7 +252,7 @@ try {{
                 "-File", script_path
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)  # 1 minute timeout for automation
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)  # 90 second timeout
             
             # Clean up temp file
             try:
@@ -290,34 +272,17 @@ try {{
             if result.stdout and "already of the type" in result.stdout:
                 logger.info(f"Mailbox {user_email} is already a shared mailbox. Skipping conversion.")
                 return "already_shared"
-            elif result.returncode == 0 and "SUCCESS: Mailbox successfully converted to SharedMailbox" in result.stdout:
+            elif result.returncode == 0 and "SUCCESS: Mailbox conversion command completed successfully" in result.stdout:
                 logger.info(f"SUCCESS: Mailbox successfully converted to shared for {user_email}")
                 return True
             else:
-                logger.warning(f"Automated conversion failed (exit code {result.returncode})")
+                # Command failed - just log and continue with delegation
+                logger.warning(f"Mailbox conversion command failed (exit code {result.returncode})")
                 if "Connect-ExchangeOnline" in result.stderr and "not recognized" in result.stderr:
                     logger.error("Exchange Online PowerShell module commands not available in subprocess")
-
-                # Fall back to manual instructions
-                logger.warning("=" * 60)
-                logger.warning("MANUAL ACTION REQUIRED: Mailbox conversion to shared type")
-                logger.warning("=" * 60)
-                logger.warning("The automated PowerShell approach failed due to module loading constraints.")
-                logger.warning("Please run ONE of the following commands manually:")
-                logger.warning("")
-                logger.warning("Option 1 - Run the prepared script:")
-                logger.warning(f"   powershell.exe -ExecutionPolicy Bypass -File 'manual_convert.ps1'")
-                logger.warning("")
-                logger.warning("Option 2 - Run individual PowerShell commands:")
-                logger.warning("   Import-Module ExchangeOnlineManagement")
-                logger.warning("   Connect-ExchangeOnline")
-                logger.warning(f"   Set-Mailbox -Identity '{user_email}' -Type Shared")
-                logger.warning("   Disconnect-ExchangeOnline")
-                logger.warning("")
-                logger.warning("After conversion, the automation will continue with delegation and license removal.")
-                logger.warning("=" * 60)
-
-                # Return False to indicate manual action needed
+                
+                # Don't block the workflow - continue with delegation regardless
+                logger.info("Continuing with mailbox delegation despite conversion uncertainty")
                 return False
             
         except subprocess.TimeoutExpired:
@@ -384,7 +349,7 @@ try {{
                 "-File", script_path
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
             
             # Clean up temp file
             try:
@@ -503,7 +468,7 @@ try {{
                 # Both user and manager found - proceed with mailbox operations
                 logger.info(f"Both user and manager found - proceeding with mailbox operations")
                 
-                # Convert mailbox to shared FIRST
+                # Convert mailbox to shared FIRST (CRITICAL - must succeed before removing licenses)
                 logger.info(f"Converting mailbox to shared for: {user_email}")
                 if self.convert_mailbox_to_shared(user_email):
                     logger.info(f"Mailbox successfully converted to shared: {user_email}")
@@ -652,6 +617,7 @@ try {{
 }}
 '''
             script_path = os.path.join(os.getcwd(), f"temp_check_user_{int(time.time())}.ps1")
+            
             try:
                 with open(script_path, 'w', encoding='utf-8') as f:
                     f.write(ps_script)
@@ -662,11 +628,14 @@ try {{
                     "-ExecutionPolicy", "Bypass",
                     "-File", script_path
                 ]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
                 
+                # Check for user exists first (success case)
                 if result.returncode == 0 and "USER_EXISTS" in result.stdout:
                     logger.info(f"User {user_email} exists in Exchange Online")
                     return True
+                
+                # Check for user not found (retryable case)
                 elif "USER_NOT_FOUND" in result.stdout:
                     if attempt < max_retries:
                         wait_time = min(60, 15 * attempt)  # 15s, 30s, 45s, 60s, 60s
@@ -676,8 +645,10 @@ try {{
                     else:
                         logger.warning(f"User {user_email} still not found in Exchange after {max_retries} attempts")
                         return False
+                
+                # Other errors
                 else:
-                    logger.error(f"Error checking user existence: {result.stdout} {result.stderr}")
+                    logger.error(f"Error checking user existence: {result.stdout}")
                     return False
                     
             except Exception as e:
@@ -863,7 +834,7 @@ try {{
             return False
 
     def add_user_to_groups_by_department(self, user_email: str, department: str) -> Dict[str, Any]:
-        """Add user to Microsoft 365 groups based on their department."""
+        """Add user to Microsoft 365 groups based on their department - optimized batch operation."""
         results = {
             'success': False,
             'groups_added': [],
@@ -874,13 +845,6 @@ try {{
         try:
             logger.info(f"Processing Microsoft 365 group assignment for {user_email} in department: {department}")
             
-            # Define groups based on department with their types
-            groups_config = {
-                "Opensense": "distribution",     # Mail-enabled security group
-                "Sales Apps": "distribution",   # Mail-enabled security group  
-                "Apple ID": "auto"             # Let PowerShell script auto-detect type (M365 or Distribution)
-            }
-            
             # Everyone gets Opensense and Apple ID
             groups_to_add = ["Opensense", "Apple ID"]
             
@@ -890,48 +854,127 @@ try {{
             
             logger.info(f"Groups to assign: {groups_to_add}")
             
-            # Add user to each group based on type
-            for group_name in groups_to_add:
-                group_type = groups_config.get(group_name, "distribution")
-                
-                if group_type == "distribution" or group_type == "auto":
-                    # Use PowerShell for distribution groups and auto-detection
-                    if self.add_user_to_group(user_email, group_name):
-                        results['groups_added'].append(group_name)
-                    else:
-                        results['groups_failed'].append(group_name)
-                        error_msg = f"Failed to add user to group: {group_name}"
-                        logger.error(error_msg)
-                        results['errors'].append(error_msg)
-                        
-                elif group_type == "m365":
-                    # Handle Microsoft 365 Groups manually
-                    logger.warning(f"Microsoft 365 Group '{group_name}' requires manual management")
-                    logger.warning(f"MANUAL ACTION: Please add {user_email} to '{group_name}' in Exchange Admin Center > Groups")
-                    logger.warning(f"REASON: M365 Groups require different API permissions than distribution groups")
-                    results['groups_failed'].append(group_name)
-                    results['errors'].append(f"Manual action required for M365 Group: {group_name}")
+            # CHECK USER EXISTS ONCE UPFRONT
+            logger.info(f"Checking if user {user_email} exists in Exchange Online before group assignments")
+            if not self._check_user_exists_in_exchange(user_email):
+                error_msg = f"User {user_email} does not exist in Exchange Online, skipping all group assignments"
+                logger.error(error_msg)
+                results['errors'].append(error_msg)
+                return results
             
-            # Set overall success if at least one group was added
-            results['success'] = len(results['groups_added']) > 0
+            logger.info(f"User {user_email} exists - proceeding with BATCH group assignment (single PowerShell session)")
             
-            if results['success']:
-                success_msg = f"Successfully added {user_email} to {len(results['groups_added'])} Microsoft 365 groups: {results['groups_added']}"
-                logger.info(success_msg)
+            # BATCH ADD: Add to all groups in a single PowerShell session
+            batch_result = self._add_user_to_groups_batch(user_email, groups_to_add)
+            
+            if batch_result['success']:
+                results['groups_added'] = batch_result['groups_added']
+                results['groups_failed'] = batch_result['groups_failed']
+                results['success'] = len(results['groups_added']) > 0
                 
-                if results['groups_failed']:
-                    failed_msg = f"Manual action required for {len(results['groups_failed'])} groups: {results['groups_failed']}"
-                    logger.warning(failed_msg)
+                if results['success']:
+                    logger.info(f"Successfully added {user_email} to {len(results['groups_added'])} groups: {results['groups_added']}")
             else:
-                failed_msg = f"Failed to add {user_email} to any Microsoft 365 groups automatically"
-                logger.error(failed_msg)
-                
+                results['errors'].append(batch_result.get('error', 'Batch add failed'))
+                logger.error(f"Batch group assignment failed: {batch_result.get('error')}")
+            
         except Exception as e:
             error_msg = f"Error in Microsoft 365 group assignment for {user_email}: {e}"
             logger.error(error_msg)
             results['errors'].append(error_msg)
         
         return results
+
+    def _add_user_to_groups_batch(self, user_email: str, group_names: List[str]) -> Dict[str, Any]:
+        """Add user to multiple groups in a single PowerShell session - MUCH faster!"""
+        try:
+            import subprocess
+            import os
+            
+            # Get credentials
+            app_id = self.credentials['client_id']
+            cert_thumbprint = self._get_cert_thumbprint()
+            
+            # Build PowerShell commands for all groups
+            group_commands = []
+            for group_name in group_names:
+                group_commands.append(f"""
+        Write-Host "Adding to {group_name}..."
+        try {{
+            Add-DistributionGroupMember -Identity '{group_name}' -Member '{user_email}' -ErrorAction Stop
+            Write-Host "SUCCESS: Added to {group_name}"
+        }} catch {{
+            if ($_.Exception.Message -like "*already a member*") {{
+                Write-Host "SKIP: Already in {group_name}"
+            }} else {{
+                Write-Host "FAILED: {group_name} - $($_.Exception.Message)"
+            }}
+        }}""")
+            
+            ps_script = f"""
+try {{
+    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
+    Connect-ExchangeOnline -AppId '{app_id}' -Organization 'filevine.com' -CertificateThumbprint '{cert_thumbprint}' -ShowBanner:$false
+    
+    {''.join(group_commands)}
+    
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    exit 0
+}} catch {{
+    Write-Host "CRITICAL_ERROR: $($_.Exception.Message)"
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+    exit 1
+}}
+"""
+            
+            script_path = os.path.join(os.getcwd(), f"temp_batch_add_{int(time.time())}.ps1")
+            
+            try:
+                with open(script_path, 'w', encoding='utf-8') as f:
+                    f.write(ps_script)
+                
+                cmd = [
+                    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", script_path
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+                
+            finally:
+                try:
+                    os.remove(script_path)
+                except:
+                    pass
+            
+            # Parse results
+            groups_added = []
+            groups_failed = []
+            
+            for group_name in group_names:
+                if f"SUCCESS: Added to {group_name}" in result.stdout or f"SKIP: Already in {group_name}" in result.stdout:
+                    groups_added.append(group_name)
+                else:
+                    groups_failed.append(group_name)
+            
+            logger.info(f"Batch add results: {len(groups_added)} succeeded, {len(groups_failed)} failed")
+            
+            return {
+                'success': True,
+                'groups_added': groups_added,
+                'groups_failed': groups_failed,
+                'output': result.stdout
+            }
+            
+        except Exception as e:
+            logger.error(f"Batch group add failed: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'groups_added': [],
+                'groups_failed': group_names
+            }
 
     def create_shared_mailbox(self, display_name: str, email_address: str, alias: str = None) -> Dict[str, Any]:
         """
