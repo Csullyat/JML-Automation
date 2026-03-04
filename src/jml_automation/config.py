@@ -450,14 +450,6 @@ class Config:
         paths = self.settings.get('onepassword', {}).get('paths', {})
         return self._get_from_onepassword(paths.get('lucid_bearer_token', "op://IT/lucid_bearer_token/password"))
 
-    def get_synqprox_credentials_dict(self) -> Dict[str, Optional[str]]:
-        """Get SYNQ Prox credentials from 1Password."""
-        paths = self.settings.get('onepassword', {}).get('paths', {})
-        return {
-            'username': self._get_from_onepassword(paths.get('synqprox_username', "op://IT/synqprox-admin/username")),
-            'password': self._get_from_onepassword(paths.get('synqprox_password', "op://IT/synqprox-admin/password"))
-        }
-
     def get_workato_credentials_dict(self) -> Dict[str, Optional[str]]:
         """Get Workato API credentials from 1Password."""
         paths = self.settings.get('onepassword', {}).get('paths', {})

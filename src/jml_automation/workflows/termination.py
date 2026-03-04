@@ -14,7 +14,6 @@ from typing import Dict, List, Optional, Any, Tuple, Union
 
 from jml_automation.services.solarwinds import SolarWindsService
 from jml_automation.services.okta import OktaService
-from jml_automation.services.synqprox import SynqProxService
 from jml_automation.config import Config
 from jml_automation.logger import setup_logging
 from jml_automation.models.ticket import TerminationTicket, UserProfile
@@ -62,7 +61,6 @@ class TerminationWorkflow:
         try:
             self.solarwinds = SolarWindsService.from_config()
             self.okta = OktaService.from_config()
-            self.synqprox = SynqProxService()
             
             # Initialize actual service implementations
             from jml_automation.services.microsoft import MicrosoftTermination
@@ -82,7 +80,6 @@ class TerminationWorkflow:
             self.lucidchart = LucidchartService()
             self.workato = WorkatoService()
             self.iru = IruService()
-            self.synq = self.synqprox  # Alias for consistency
             
             logger.info("Core services initialized successfully")
             
@@ -512,10 +509,10 @@ class TerminationWorkflow:
             user_email: User to terminate
             manager_email: Manager for data delegation
             ticket_id: Service desk ticket ID
-            phases: List of phases to execute ['okta','microsoft','google','zoom','synqprox','domo','lucid','workato']
+            phases: List of phases to execute ['okta','microsoft','google','zoom','domo','lucid','workato']
         """
         if phases is None:
-            phases = ["iru", "okta", "microsoft", "google", "zoom", "synqprox", "domo", "adobe", "lucid", "workato"]
+            phases = ["iru", "okta", "microsoft", "google", "zoom", "domo", "adobe", "lucid", "workato"]
 
         logger.info(f"Starting multi-phase termination for {user_email}")
         logger.info(f"Phases to execute: {', '.join(phases)}")
@@ -709,36 +706,11 @@ class TerminationWorkflow:
                     logger.error(f"Zoom termination failed: {e}")
                     termination_results["phase_success"]["zoom"] = False
 
-            # Phase 5: SynQ Prox (MANDATORY - always process)
-            if "synqprox" in phases:
-                if progress_callback:
-                    progress_callback("Phase 5: SynQ Prox", "starting")
-                logger.info(" PHASE 5: SynQ Prox termination (MANDATORY)")
-                try:
-                    synq_results = self.synqprox.execute_complete_termination(user_email, manager_email or "")
-                    termination_results["synqprox_results"] = synq_results
-                    
-                    if synq_results.get("success"):
-                        if progress_callback:
-                            progress_callback("Phase 5: SynQ Prox", "success", "User removed from SynQ Prox")
-                        termination_results["summary"].append("SUCCESS: SynQ Prox: User removed")
-                        termination_results["phase_success"]["synqprox"] = True
-                    else:
-                        if progress_callback:
-                            progress_callback("Phase 5: SynQ Prox", "error", f"Failed: {synq_results.get('error', 'Unknown error')}")
-                        termination_results["summary"].append(f"ERROR: SynQ Prox: {synq_results.get('error', 'Unknown error')}")
-                        termination_results["phase_success"]["synqprox"] = False
-                        termination_results["errors"].append(f"SynQ Prox termination failed: {synq_results.get('error')}")
-                except Exception as e:
-                    logger.error(f"SynQ Prox termination failed: {e}")
-                    termination_results["phase_success"]["synqprox"] = False
-                    termination_results["errors"].append(f"SynQ Prox termination failed: {str(e)}")
-
-            # Phase 6: Domo (group-dependent)
+            # Phase 5: Domo (group-dependent)
             if "domo" in phases:
                 if progress_callback:
-                    progress_callback("Phase 6: Domo", "starting")
-                logger.info(" PHASE 6: Domo termination (group-dependent)")
+                    progress_callback("Phase 5: Domo", "starting")
+                logger.info(" PHASE 5: Domo termination (group-dependent)")
                 try:
                     # Check if user is in Domo groups
                     user = self.okta.get_user_by_email(user_email)
@@ -759,19 +731,19 @@ class TerminationWorkflow:
                                     logger.warning(f"Failed to remove from Domo Okta groups: {group_removal.get('error')}")
                                 
                                 if progress_callback:
-                                    progress_callback("Phase 6: Domo", "success", "User removed from Domo, Okta groups updated")
+                                    progress_callback("Phase 5: Domo", "success", "User removed from Domo, Okta groups updated")
                                 termination_results["summary"].append("SUCCESS: Domo: User removed, Okta groups updated")
                                 termination_results["phase_success"]["domo"] = True
                             else:
                                 if progress_callback:
-                                    progress_callback("Phase 6: Domo", "error", f"Failed: {domo_results.get('error', 'Unknown error')}")
+                                    progress_callback("Phase 5: Domo", "error", f"Failed: {domo_results.get('error', 'Unknown error')}")
                                 termination_results["summary"].append(f"ERROR: Domo: {domo_results.get('error', 'Unknown error')}")
                                 termination_results["phase_success"]["domo"] = False
                                 termination_results["errors"].append(f"Domo termination failed: {domo_results.get('error')}")
                         else:
                             logger.info("User not in Domo groups, skipping Domo termination")
                             if progress_callback:
-                                progress_callback("Phase 6: Domo", "success", "User not in Domo groups - skipped")
+                                progress_callback("Phase 5: Domo", "success", "User not in Domo groups - skipped")
                             termination_results["summary"].append("SUCCESS: Domo: User not in groups - skipped")
                             termination_results["phase_success"]["domo"] = True
                     else:
@@ -783,11 +755,11 @@ class TerminationWorkflow:
                     termination_results["phase_success"]["domo"] = False
                     termination_results["errors"].append(f"Domo termination failed: {str(e)}")
 
-            # Phase 7: Adobe (group-dependent)
+            # Phase 6: Adobe (group-dependent)
             if "adobe" in phases:
                 if progress_callback:
-                    progress_callback("Phase 7: Adobe", "starting")
-                logger.info(" PHASE 7: Adobe termination (group-dependent)")
+                    progress_callback("Phase 6: Adobe", "starting")
+                logger.info(" PHASE 6: Adobe termination (group-dependent)")
                 try:
                     # Check if user is in Adobe groups
                     user = self.okta.get_user_by_email(user_email)
@@ -808,19 +780,19 @@ class TerminationWorkflow:
                                     logger.warning(f"Failed to remove from Adobe Okta groups: {group_removal.get('error')}")
                                 
                                 if progress_callback:
-                                    progress_callback("Phase 7: Adobe", "success", "User removed from Adobe, Okta groups updated")
+                                    progress_callback("Phase 6: Adobe", "success", "User removed from Adobe, Okta groups updated")
                                 termination_results["summary"].append("SUCCESS: Adobe: User removed, Okta groups updated")
                                 termination_results["phase_success"]["adobe"] = True
                             else:
                                 if progress_callback:
-                                    progress_callback("Phase 7: Adobe", "error", f"Failed: {adobe_results.get('error', 'Unknown error')}")
+                                    progress_callback("Phase 6: Adobe", "error", f"Failed: {adobe_results.get('error', 'Unknown error')}")
                                 termination_results["summary"].append(f"ERROR: Adobe: {adobe_results.get('error', 'Unknown error')}")
                                 termination_results["phase_success"]["adobe"] = False
                                 termination_results["errors"].append(f"Adobe termination failed: {adobe_results.get('error')}")
                         else:
                             logger.info("User not in Adobe groups, skipping Adobe termination")
                             if progress_callback:
-                                progress_callback("Phase 7: Adobe", "success", "User not in Adobe groups - skipped")
+                                progress_callback("Phase 6: Adobe", "success", "User not in Adobe groups - skipped")
                             termination_results["summary"].append("SUCCESS: Adobe: User not in groups - skipped")
                             termination_results["phase_success"]["adobe"] = True
                     else:
@@ -832,11 +804,11 @@ class TerminationWorkflow:
                     termination_results["phase_success"]["adobe"] = False
                     termination_results["errors"].append(f"Adobe termination failed: {str(e)}")
 
-            # Phase 8: Lucid (group-dependent)
+            # Phase 7: Lucid (group-dependent)
             if "lucid" in phases:
                 if progress_callback:
-                    progress_callback("Phase 8: Lucid", "starting")
-                logger.info(" PHASE 8: Lucid termination (group-dependent)")
+                    progress_callback("Phase 7: Lucid", "starting")
+                logger.info(" PHASE 7: Lucid termination (group-dependent)")
                 try:
                     # Check if user is in Lucid groups
                     user = self.okta.get_user_by_email(user_email)
@@ -881,11 +853,11 @@ class TerminationWorkflow:
                     termination_results["phase_success"]["lucid"] = False
                     termination_results["errors"].append(f"Lucid termination failed: {str(e)}")
 
-            # Phase 9: Workato (group-dependent)
+            # Phase 8: Workato (group-dependent)
             if "workato" in phases:
                 if progress_callback:
-                    progress_callback("Phase 9: Workato", "starting")
-                logger.info(" PHASE 9: Workato termination (group-dependent)")
+                    progress_callback("Phase 8: Workato", "starting")
+                logger.info(" PHASE 8: Workato termination (group-dependent)")
                 try:
                     # Check if user is in Workato groups
                     user = self.okta.get_user_by_email(user_email)
@@ -1376,7 +1348,7 @@ class TerminationWorkflow:
                     logger.info(f"Adding completion comment and closing ticket {ticket_id}")
                     
                     # Add detailed completion comment
-                    completion_comment = "Sessions cleared and deactivated in Okta. Appropriate deletion and data transfer completed from Microsoft, Google, Zoom, Domo, Lucid, Adobe, ChatGPT and Workato. Removed from Synq Prox."
+                    completion_comment = "Sessions cleared and deactivated in Okta. Appropriate deletion and data transfer completed from Microsoft, Google, Zoom, Domo, Lucid, Adobe, ChatGPT and Workato. Removed from Synq Prox manually."
                     
                     # Add the comment first
                     comment_added = self.solarwinds.add_ticket_comment(ticket_id, completion_comment)

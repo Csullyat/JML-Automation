@@ -5,6 +5,7 @@ pyyaml>=6.0
 requests>=2.31.0
 urllib3>=2.0.0
 certifi>=2023.7.22
+pip-system-certs>=4.0  # Windows certificate store integration for SSL
 
 # CLI interface
 click>=8.1.0
@@ -51,6 +52,10 @@ colorlog>=6.7.0
 
 # Optional but recommended
 python-dotenv>=1.0.0  # For .env file support
+
+# Flask web application
+Flask>=3.0.0
+Authlib>=1.3.0
 
 # 1Password CLI integration (ensure op CLI is installed separately)
 # No Python package needed for 1Password CLI - uses subprocess

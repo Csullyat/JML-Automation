@@ -2,8 +2,12 @@ from flask import Flask, redirect, url_for, session, request
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 import os
+import sys
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Add src directory to Python path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 # Import and setup centralized logging
 from jml_automation.logger import setup_logging
@@ -485,10 +489,6 @@ def home():
                     
                     return true; // Allow form submission to proceed
                 }}
-                
-                // Show welcome message on load
-                const firstName = userName.split(' ')[0];
-                showBubble("Well met, " + firstName + ".", 6000);
                 
                 // Show success banner if redirected from submit
                 const urlParams = new URLSearchParams(window.location.search);

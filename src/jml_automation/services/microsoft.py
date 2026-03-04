@@ -834,7 +834,7 @@ try {{
             return False
 
     def add_user_to_groups_by_department(self, user_email: str, department: str) -> Dict[str, Any]:
-        """Add user to Microsoft 365 groups based on their department - optimized batch operation."""
+        """Add user to Microsoft 365 groups based on their department."""
         results = {
             'success': False,
             'groups_added': [],
@@ -845,6 +845,13 @@ try {{
         try:
             logger.info(f"Processing Microsoft 365 group assignment for {user_email} in department: {department}")
             
+            # Define groups based on department with their types
+            groups_config = {
+                "Opensense": "distribution",     # Mail-enabled security group
+                "Sales Apps": "distribution",   # Mail-enabled security group  
+                "Apple ID": "auto"             # Let PowerShell script auto-detect type (M365 or Distribution)
+            }
+            
             # Everyone gets Opensense and Apple ID
             groups_to_add = ["Opensense", "Apple ID"]
             
@@ -854,7 +861,7 @@ try {{
             
             logger.info(f"Groups to assign: {groups_to_add}")
             
-            # CHECK USER EXISTS ONCE UPFRONT
+            # CHECK USER EXISTS ONCE UPFRONT - This saves ~40 seconds of redundant checks!
             logger.info(f"Checking if user {user_email} exists in Exchange Online before group assignments")
             if not self._check_user_exists_in_exchange(user_email):
                 error_msg = f"User {user_email} does not exist in Exchange Online, skipping all group assignments"
@@ -862,119 +869,51 @@ try {{
                 results['errors'].append(error_msg)
                 return results
             
-            logger.info(f"User {user_email} exists - proceeding with BATCH group assignment (single PowerShell session)")
+            logger.info(f"User {user_email} exists - proceeding with group assignments")
             
-            # BATCH ADD: Add to all groups in a single PowerShell session
-            batch_result = self._add_user_to_groups_batch(user_email, groups_to_add)
-            
-            if batch_result['success']:
-                results['groups_added'] = batch_result['groups_added']
-                results['groups_failed'] = batch_result['groups_failed']
-                results['success'] = len(results['groups_added']) > 0
+            # Add user to each group (skip individual existence checks since we already verified)
+            for group_name in groups_to_add:
+                group_type = groups_config.get(group_name, "distribution")
                 
-                if results['success']:
-                    logger.info(f"Successfully added {user_email} to {len(results['groups_added'])} groups: {results['groups_added']}")
-            else:
-                results['errors'].append(batch_result.get('error', 'Batch add failed'))
-                logger.error(f"Batch group assignment failed: {batch_result.get('error')}")
+                if group_type == "distribution" or group_type == "auto":
+                    # Use PowerShell for distribution groups and auto-detection
+                    # Call _add_user_to_group_powershell directly to skip redundant existence check
+                    if self._add_user_to_group_powershell(user_email, group_name):
+                        results['groups_added'].append(group_name)
+                    else:
+                        results['groups_failed'].append(group_name)
+                        error_msg = f"Failed to add user to group: {group_name}"
+                        logger.error(error_msg)
+                        results['errors'].append(error_msg)
+                        
+                elif group_type == "m365":
+                    # Handle Microsoft 365 Groups manually
+                    logger.warning(f"Microsoft 365 Group '{group_name}' requires manual management")
+                    logger.warning(f"MANUAL ACTION: Please add {user_email} to '{group_name}' in Exchange Admin Center > Groups")
+                    logger.warning(f"REASON: M365 Groups require different API permissions than distribution groups")
+                    results['groups_failed'].append(group_name)
+                    results['errors'].append(f"Manual action required for M365 Group: {group_name}")
             
+            # Set overall success if at least one group was added
+            results['success'] = len(results['groups_added']) > 0
+            
+            if results['success']:
+                success_msg = f"Successfully added {user_email} to {len(results['groups_added'])} Microsoft 365 groups: {results['groups_added']}"
+                logger.info(success_msg)
+                
+                if results['groups_failed']:
+                    failed_msg = f"Manual action required for {len(results['groups_failed'])} groups: {results['groups_failed']}"
+                    logger.warning(failed_msg)
+            else:
+                failed_msg = f"Failed to add {user_email} to any Microsoft 365 groups automatically"
+                logger.error(failed_msg)
+                
         except Exception as e:
             error_msg = f"Error in Microsoft 365 group assignment for {user_email}: {e}"
             logger.error(error_msg)
             results['errors'].append(error_msg)
         
         return results
-
-    def _add_user_to_groups_batch(self, user_email: str, group_names: List[str]) -> Dict[str, Any]:
-        """Add user to multiple groups in a single PowerShell session - MUCH faster!"""
-        try:
-            import subprocess
-            import os
-            
-            # Get credentials
-            app_id = self.credentials['client_id']
-            cert_thumbprint = self._get_cert_thumbprint()
-            
-            # Build PowerShell commands for all groups
-            group_commands = []
-            for group_name in group_names:
-                group_commands.append(f"""
-        Write-Host "Adding to {group_name}..."
-        try {{
-            Add-DistributionGroupMember -Identity '{group_name}' -Member '{user_email}' -ErrorAction Stop
-            Write-Host "SUCCESS: Added to {group_name}"
-        }} catch {{
-            if ($_.Exception.Message -like "*already a member*") {{
-                Write-Host "SKIP: Already in {group_name}"
-            }} else {{
-                Write-Host "FAILED: {group_name} - $($_.Exception.Message)"
-            }}
-        }}""")
-            
-            ps_script = f"""
-try {{
-    Import-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
-    Connect-ExchangeOnline -AppId '{app_id}' -Organization 'filevine.com' -CertificateThumbprint '{cert_thumbprint}' -ShowBanner:$false
-    
-    {''.join(group_commands)}
-    
-    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
-    exit 0
-}} catch {{
-    Write-Host "CRITICAL_ERROR: $($_.Exception.Message)"
-    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
-    exit 1
-}}
-"""
-            
-            script_path = os.path.join(os.getcwd(), f"temp_batch_add_{int(time.time())}.ps1")
-            
-            try:
-                with open(script_path, 'w', encoding='utf-8') as f:
-                    f.write(ps_script)
-                
-                cmd = [
-                    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-                    "-NoProfile",
-                    "-ExecutionPolicy", "Bypass",
-                    "-File", script_path
-                ]
-                
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
-                
-            finally:
-                try:
-                    os.remove(script_path)
-                except:
-                    pass
-            
-            # Parse results
-            groups_added = []
-            groups_failed = []
-            
-            for group_name in group_names:
-                if f"SUCCESS: Added to {group_name}" in result.stdout or f"SKIP: Already in {group_name}" in result.stdout:
-                    groups_added.append(group_name)
-                else:
-                    groups_failed.append(group_name)
-            
-            logger.info(f"Batch add results: {len(groups_added)} succeeded, {len(groups_failed)} failed")
-            
-            return {
-                'success': True,
-                'groups_added': groups_added,
-                'groups_failed': groups_failed,
-                'output': result.stdout
-            }
-            
-        except Exception as e:
-            logger.error(f"Batch group add failed: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'groups_added': [],
-                'groups_failed': group_names
-            }
 
     def create_shared_mailbox(self, display_name: str, email_address: str, alias: str = None) -> Dict[str, Any]:
         """
