@@ -10,7 +10,6 @@ okta:
 
 google:
   domain: filevine.com
-  admin_email: cody@filevine.com
 
 onepassword:
   paths:
