@@ -265,9 +265,9 @@ def run(
             import time
             
             # Wait for user propagation from Okta to Exchange Online
-            print(f"DEBUG: Waiting 90 seconds for {u.email} to propagate from Okta to Exchange Online...")
-            log.info(f"Waiting 90 seconds for user {u.email} to propagate from Okta to Exchange Online")
-            time.sleep(90)
+            print(f"DEBUG: Waiting 120 seconds for {u.email} to propagate from Okta to Exchange Online...")
+            log.info(f"Waiting 120 seconds for user {u.email} to propagate from Okta to Exchange Online")
+            time.sleep(120)
             
             print(f"DEBUG: Adding Microsoft 365 groups for user {u.email} in department {u.department}")
             
